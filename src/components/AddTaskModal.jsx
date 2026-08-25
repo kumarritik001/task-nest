@@ -1,184 +1,162 @@
 import React, { useState } from 'react'
-import { getTemplates, addTemplate, removeTemplate, getAllSections, getAllDayTypes } from '../utils/storage'
+import { getAllSections, getTemplates, addTemplate, removeTemplate } from '../utils/storage'
+import { addTask } from '../utils/storage'
 
-export default function AddTaskModal({ dateStr, onAdd, onClose }) {
+const SECTIONS = getAllSections();
+
+export default function AddTaskModal({ dateStr, onClose }) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [section, setSection] = useState('Core Engineering');
   const [deadline, setDeadline] = useState('');
   const [timeEstimate, setTimeEstimate] = useState('');
-  const [saveAsTemplate, setSaveAsTemplate] = useState(false);
+  const [subtasks, setSubtasks] = useState([]);
+  const [newSub, setNewSub] = useState('');
+  const [saveTemplate, setSaveTemplate] = useState(false);
   const [useTemplate, setUseTemplate] = useState(false);
-  const [selectedTemplate, setSelectedTemplate] = useState(null);
-  const [showConfirm, setShowConfirm] = useState(false);
   const [templates, setTemplates] = useState(getTemplates());
+  const [step, setStep] = useState('form'); // form | confirm
 
-  const sections = getAllSections();
-
-  const handleSubmit = () => {
-    if (!title.trim()) return;
-    setShowConfirm(true);
+  const addSubtaskInput = () => {
+    if (!newSub.trim()) return;
+    setSubtasks([...subtasks, { title: newSub.trim() }]);
+    setNewSub('');
   };
 
-  const confirmAdd = () => {
-    const task = {
-      title: selectedTemplate ? selectedTemplate.title : title,
-      description: selectedTemplate ? selectedTemplate.description : description,
-      deadline: selectedTemplate ? selectedTemplate.deadline : deadline,
-      timeEstimate: selectedTemplate ? selectedTemplate.timeEstimate : timeEstimate,
-      isTemplate: false,
-      templateId: selectedTemplate ? selectedTemplate.id : null,
-    };
-
-    if (saveAsTemplate && !selectedTemplate) {
-      addTemplate({ title, description, section, deadline, timeEstimate });
-    }
-
-    onAdd(dateStr, selectedTemplate ? selectedTemplate.section : section, task);
-    onClose();
+  const removeSubtaskInput = (idx) => {
+    setSubtasks(subtasks.filter((_, i) => i !== idx));
   };
 
-  const handleTemplateSelect = (tpl) => {
-    setSelectedTemplate(tpl);
+  const loadTemplate = (tpl) => {
     setTitle(tpl.title);
-    setDescription(tpl.description);
+    setDescription(tpl.description || '');
     setSection(tpl.section);
     setDeadline(tpl.deadline || '');
     setTimeEstimate(tpl.timeEstimate || '');
+    setUseTemplate(false);
+  };
+
+  const handleSubmit = () => {
+    if (!title.trim()) return;
+    setStep('confirm');
+  };
+
+  const confirmAdd = () => {
+    addTask(dateStr, {
+      title, description, section, deadline, timeEstimate,
+      subtasks: subtasks.map(s => ({ title: s.title }))
+    });
+    if (saveTemplate) {
+      addTemplate({ title, description, section, deadline, timeEstimate });
+    }
+    onClose();
   };
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
-        {!showConfirm ? (
+      <div className="modal" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <h2>{step === 'form' ? 'New Task' : '⚠️ Confirm Timeline'}</h2>
+          <button className="modal-close" onClick={onClose}>✕</button>
+        </div>
+
+        {step === 'form' ? (
           <>
-            <h2>Add Task — {dateStr}</h2>
-
-            <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
-              <button
-                className={`btn btn-sm ${!useTemplate ? 'btn-primary' : 'btn-secondary'}`}
-                onClick={() => { setUseTemplate(false); setSelectedTemplate(null); }}
-              >
-                New Task
-              </button>
-              <button
-                className={`btn btn-sm ${useTemplate ? 'btn-primary' : 'btn-secondary'}`}
-                onClick={() => setUseTemplate(true)}
-              >
-                From Template ({templates.length})
-              </button>
-            </div>
-
-            {useTemplate ? (
-              <div className="template-list">
-                {templates.length === 0 && (
-                  <div style={{ padding: '16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.8rem' }}>
-                    No templates yet. Create a task first and save it as template.
-                  </div>
-                )}
-                {templates.map(tpl => (
-                  <div
-                    key={tpl.id}
-                    className="template-item"
-                    style={{ cursor: 'pointer', background: selectedTemplate?.id === tpl.id ? 'var(--bg-hover)' : 'transparent' }}
-                    onClick={() => handleTemplateSelect(tpl)}
-                  >
-                    <div>
-                      <div style={{ fontWeight: 500 }}>{tpl.title}</div>
-                      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{tpl.section}</div>
-                    </div>
-                    <div style={{ display: 'flex', gap: '6px' }}>
-                      <button className="btn btn-sm btn-danger" onClick={(e) => { e.stopPropagation(); removeTemplate(tpl.id); setTemplates(getTemplates()); }}>✕</button>
-                    </div>
-                  </div>
-                ))}
+            <div className="modal-body">
+              <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
+                <button className={`btn btn-sm ${!useTemplate ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setUseTemplate(false)}>New Task</button>
+                <button className={`btn btn-sm ${useTemplate ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setUseTemplate(true)}>From Template ({templates.length})</button>
               </div>
-            ) : (
-              <>
-                <label>Task Title *</label>
-                <input
-                  type="text"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  placeholder="What needs to be done?"
-                  autoFocus
-                />
 
-                <label>Description</label>
-                <textarea
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  placeholder="Optional details..."
-                  rows={2}
-                />
-
-                <label>Section</label>
-                <select value={section} onChange={(e) => setSection(e.target.value)}>
-                  {sections.map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
-
-                <div className="grid-2">
-                  <div>
-                    <label>Deadline</label>
-                    <input
-                      type="date"
-                      value={deadline}
-                      onChange={(e) => setDeadline(e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <label>Time Estimate</label>
-                    <input
-                      type="text"
-                      value={timeEstimate}
-                      onChange={(e) => setTimeEstimate(e.target.value)}
-                      placeholder="e.g. 2 hours"
-                    />
-                  </div>
+              {useTemplate ? (
+                <div style={{ maxHeight: 200, overflowY: 'auto' }}>
+                  {templates.length === 0 && <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textAlign: 'center', padding: 20 }}>No templates yet</p>}
+                  {templates.map(t => (
+                    <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', border: '1px solid var(--border)', borderRadius: 'var(--radius-xs)', marginBottom: 6, cursor: 'pointer' }}
+                      onClick={() => loadTemplate(t)}>
+                      <div><div style={{ fontWeight: 600, fontSize: '0.85rem' }}>{t.title}</div><div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{t.section}</div></div>
+                      <button className="btn btn-danger btn-sm" onClick={e => { e.stopPropagation(); removeTemplate(t.id); setTemplates(getTemplates()); }}>✕</button>
+                    </div>
+                  ))}
                 </div>
+              ) : (
+                <>
+                  <div className="form-group">
+                    <label className="form-label">Title *</label>
+                    <input className="form-input" value={title} onChange={e => setTitle(e.target.value)} placeholder="What needs to be done?" autoFocus />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Description</label>
+                    <textarea className="form-textarea" value={description} onChange={e => setDescription(e.target.value)} placeholder="Optional details..." rows={2} />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Section</label>
+                    <select className="form-select" value={section} onChange={e => setSection(e.target.value)}>
+                      {SECTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  </div>
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label className="form-label">Deadline</label>
+                      <input className="form-input" type="date" value={deadline} onChange={e => setDeadline(e.target.value)} />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Time Estimate</label>
+                      <input className="form-input" value={timeEstimate} onChange={e => setTimeEstimate(e.target.value)} placeholder="e.g. 2 hours" />
+                    </div>
+                  </div>
 
-                <div style={{ marginTop: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <input
-                    type="checkbox"
-                    id="saveTemplate"
-                    checked={saveAsTemplate}
-                    onChange={(e) => setSaveAsTemplate(e.target.checked)}
-                    style={{ width: 'auto' }}
-                  />
-                  <label htmlFor="saveTemplate" style={{ margin: 0, fontSize: '0.78rem' }}>
-                    Save as daily template (reuse later)
+                  {/* Subtasks */}
+                  <div className="form-group">
+                    <label className="form-label">Subtasks</label>
+                    {subtasks.map((st, i) => (
+                      <div key={i} className="subtask-input-row">
+                        <input className="form-input" value={st.title} readOnly style={{ padding: '6px 10px', fontSize: '0.78rem' }} />
+                        <button className="remove-sub" onClick={() => removeSubtaskInput(i)}>✕</button>
+                      </div>
+                    ))}
+                    <div className="subtask-input-row">
+                      <input className="form-input" value={newSub} onChange={e => setNewSub(e.target.value)}
+                        onKeyDown={e => e.key === 'Enter' && addSubtaskInput()}
+                        placeholder="Add subtask..." style={{ padding: '6px 10px', fontSize: '0.78rem' }} />
+                      <button className="btn btn-ghost btn-sm" onClick={addSubtaskInput}>+ Add</button>
+                    </div>
+                  </div>
+
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.78rem', cursor: 'pointer' }}>
+                    <input type="checkbox" checked={saveTemplate} onChange={e => setSaveTemplate(e.target.checked)} style={{ width: 'auto' }} />
+                    Save as reusable template
                   </label>
-                </div>
-              </>
-            )}
-
-            <div className="modal-actions">
-              <button className="btn btn-secondary" onClick={onClose}>Cancel</button>
-              <button className="btn btn-primary" onClick={handleSubmit}>
-                Add Task
-              </button>
+                </>
+              )}
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+              <button className="btn btn-primary" onClick={handleSubmit}>Continue →</button>
             </div>
           </>
         ) : (
           <>
-            <h2>⚠️ Confirm Timeline</h2>
-            <div style={{ padding: '16px 0', fontSize: '0.88rem', lineHeight: 1.6 }}>
-              <p>You're adding <strong>{selectedTemplate ? selectedTemplate.title : title}</strong> to <strong>{dateStr}</strong>.</p>
-              <p style={{ marginTop: '8px' }}>Time estimate: <strong>{timeEstimate || 'Not specified'}</strong></p>
-              {deadline && <p>Deadline: <strong>{deadline}</strong></p>}
-              <div className="conflict-warning" style={{ marginTop: '16px' }}>
-                ⚠️ This timeline is now locked. Make sure you've allocated enough time. No changes after confirmation.
+            <div className="modal-body">
+              <div style={{ padding: '8px 0', fontSize: '0.88rem', lineHeight: 1.7 }}>
+                <p>Task: <strong>{title}</strong></p>
+                <p>Date: <strong>{dateStr}</strong></p>
+                <p>Section: <strong>{section}</strong></p>
+                {deadline && <p>Deadline: <strong>{deadline}</strong></p>}
+                {timeEstimate && <p>Estimate: <strong>{timeEstimate}</strong></p>}
+                {subtasks.length > 0 && <p>Subtasks: <strong>{subtasks.length}</strong></p>}
+                <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 'var(--radius-xs)', padding: '10px 14px', marginTop: 14, fontSize: '0.8rem', color: '#92400E' }}>
+                  ⚠️ Timeline will be locked after confirmation. Ensure the time allocated is sufficient.
+                </div>
               </div>
             </div>
-            <div className="modal-actions">
-              <button className="btn btn-secondary" onClick={() => setShowConfirm(false)}>Go Back</button>
-              <button className="btn btn-primary" onClick={confirmAdd}>
-                ✓ Confirm & Lock Timeline
-              </button>
+            <div className="modal-footer">
+              <button className="btn btn-ghost" onClick={() => setStep('form')}>← Go Back</button>
+              <button className="btn btn-primary" onClick={confirmAdd}>✓ Confirm & Create</button>
             </div>
           </>
         )}
       </div>
     </div>
-  )
+  );
 }

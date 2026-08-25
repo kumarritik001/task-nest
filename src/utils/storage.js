@@ -1,411 +1,322 @@
 import { v4 as uuidv4 } from 'uuid';
-import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth, eachDayOfInterval, addWeeks, addMonths, isToday, parseISO, differenceInCalendarDays } from 'date-fns';
+import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth, eachDayOfInterval, addDays, parseISO } from 'date-fns';
 
 const SECTIONS = ['Core Engineering', 'Project', 'Job', 'Market Analysis'];
 const DAY_TYPES = ['hard', 'moderate', 'easy'];
 
-function getStore() {
-  try {
-    return JSON.parse(localStorage.getItem('tasknest_data')) || {};
-  } catch { return {}; }
+function get() {
+  try { return JSON.parse(localStorage.getItem('tn_data')) || {}; }
+  catch { return {}; }
 }
 
-function setStore(data) {
-  localStorage.setItem('tasknest_data', JSON.stringify(data));
+function set(d) { localStorage.setItem('tn_data', JSON.stringify(d)); }
+
+function init() {
+  const d = get();
+  if (!d.tasks) d.tasks = {};
+  if (!d.templates) d.templates = [];
+  if (!d.dayTypes) d.dayTypes = {};
+  if (!d.progressLog) d.progressLog = [];
+  if (!d.settings) d.settings = { email: '' };
+  set(d);
+  return d;
 }
 
-function initData() {
-  const data = getStore();
-  if (!data.months) data.months = {};
-  if (!data.templates) data.templates = [];
-  if (!data.dayTypes) data.dayTypes = {};
-  if (!data.progressLog) data.progressLog = [];
-  if (!data.settings) data.settings = { email: '', notificationsEnabled: true };
-  setStore(data);
-  return data;
+// ── Tasks ──
+
+export function getTasks(dateStr) {
+  const d = init();
+  return d.tasks[dateStr] || [];
 }
 
-export function getMonth(yearMonth) {
-  const data = initData();
-  return data.months[yearMonth] || null;
+export function addTask(dateStr, task) {
+  const d = init();
+  if (!d.tasks[dateStr]) d.tasks[dateStr] = [];
+  const newTask = {
+    id: uuidv4(),
+    title: task.title,
+    description: task.description || '',
+    section: task.section || 'Core Engineering',
+    progress: 0,
+    completed: false,
+    deadline: task.deadline || null,
+    timeEstimate: task.timeEstimate || '',
+    subtasks: (task.subtasks || []).map(st => ({
+      id: uuidv4(),
+      title: st.title,
+      completed: false
+    })),
+    createdAt: new Date().toISOString()
+  };
+  d.tasks[dateStr].push(newTask);
+  set(d);
+  logProgress(dateStr, newTask.section);
+  return newTask;
 }
 
-export function ensureMonth(yearMonth) {
-  const data = initData();
-  if (!data.months[yearMonth]) {
-    data.months[yearMonth] = { weeks: {}, createdAt: new Date().toISOString() };
-    setStore(data);
-  }
-  return data.months[yearMonth];
-}
-
-export function getWeek(weekId) {
-  const data = initData();
-  for (const ym of Object.keys(data.months)) {
-    if (data.months[ym].weeks[weekId]) return data.months[ym].weeks[weekId];
-  }
-  return null;
-}
-
-export function ensureWeek(yearMonth, weekId) {
-  const data = initData();
-  ensureMonth(yearMonth);
-  if (!data.months[yearMonth].weeks[weekId]) {
-    data.months[yearMonth].weeks[weekId] = { days: {}, createdAt: new Date().toISOString() };
-    setStore(data);
-  }
-  return data.months[yearMonth].weeks[weekId];
-}
-
-export function getDay(dateStr) {
-  const data = initData();
-  for (const ym of Object.keys(data.months)) {
-    for (const wk of Object.keys(data.months[ym].weeks)) {
-      if (data.months[ym].weeks[wk].days[dateStr]) {
-        return data.months[ym].weeks[wk].days[dateStr];
-      }
+export function updateTask(dateStr, taskId, updates) {
+  const d = init();
+  const tasks = d.tasks[dateStr] || [];
+  const task = tasks.find(t => t.id === taskId);
+  if (task) {
+    Object.assign(task, updates);
+    if (task.subtasks) {
+      const done = task.subtasks.filter(s => s.completed).length;
+      task.progress = task.subtasks.length > 0
+        ? Math.round((done / task.subtasks.length) * 100)
+        : task.progress;
+      task.completed = task.subtasks.length > 0
+        ? task.subtasks.every(s => s.completed)
+        : task.completed;
     }
+    set(d);
+    logProgress(dateStr, task.section);
   }
-  return null;
 }
 
-export function ensureDay(dateStr) {
-  const data = initData();
-  const d = parseISO(dateStr);
-  const yearMonth = format(d, 'yyyy-MM');
-  const weekStart = startOfWeek(d, { weekStartsOn: 1 });
-  const weekId = format(weekStart, 'yyyy-MM-dd');
-
-  ensureWeek(yearMonth, weekId);
-  if (!data.months[yearMonth].weeks[weekId].days[dateStr]) {
-    data.months[yearMonth].weeks[weekId].days[dateStr] = {
-      tasks: [],
-      dayType: null,
-      createdAt: new Date().toISOString()
-    };
-    setStore(data);
-  }
-  return data.months[yearMonth].weeks[weekId].days[dateStr];
-}
-
-export function addTask(dateStr, section, task) {
-  const data = initData();
-  ensureDay(dateStr);
-  for (const ym of Object.keys(data.months)) {
-    for (const wk of Object.keys(data.months[ym].weeks)) {
-      if (data.months[ym].weeks[wk].days[dateStr]) {
-        const day = data.months[ym].weeks[wk].days[dateStr];
-        const newTask = {
-          id: uuidv4(),
-          title: task.title,
-          description: task.description || '',
-          section,
-          progress: 0,
-          completed: false,
-          isTemplate: task.isTemplate || false,
-          templateId: task.templateId || null,
-          createdAt: new Date().toISOString(),
-          deadline: task.deadline || null,
-          timeEstimate: task.timeEstimate || '',
-        };
-        day.tasks.push(newTask);
-        setStore(data);
-        logProgress(dateStr, section);
-        return newTask;
-      }
+export function setTaskProgress(dateStr, taskId, progress) {
+  const d = init();
+  const task = (d.tasks[dateStr] || []).find(t => t.id === taskId);
+  if (task) {
+    task.progress = progress;
+    task.completed = progress >= 100;
+    if (task.subtasks && task.subtasks.length > 0) {
+      const count = Math.round((progress / 100) * task.subtasks.length);
+      task.subtasks.forEach((st, i) => { st.completed = i < count; });
     }
-  }
-  return null;
-}
-
-export function updateTaskProgress(dateStr, taskId, progress) {
-  const data = initData();
-  for (const ym of Object.keys(data.months)) {
-    for (const wk of Object.keys(data.months[ym].weeks)) {
-      if (data.months[ym].weeks[wk].days[dateStr]) {
-        const day = data.months[ym].weeks[wk].days[dateStr];
-        const task = day.tasks.find(t => t.id === taskId);
-        if (task) {
-          task.progress = progress;
-          task.completed = progress >= 100;
-          setStore(data);
-          logProgress(dateStr, task.section);
-        }
-        return;
-      }
-    }
+    set(d);
+    logProgress(dateStr, task.section);
   }
 }
 
 export function removeTask(dateStr, taskId) {
-  const data = initData();
-  for (const ym of Object.keys(data.months)) {
-    for (const wk of Object.keys(data.months[ym].weeks)) {
-      if (data.months[ym].weeks[wk].days[dateStr]) {
-        const day = data.months[ym].weeks[wk].days[dateStr];
-        const task = day.tasks.find(t => t.id === taskId);
-        day.tasks = day.tasks.filter(t => t.id !== taskId);
-        setStore(data);
-        if (task) logProgress(dateStr, task.section);
-        return;
-      }
+  const d = init();
+  const task = (d.tasks[dateStr] || []).find(t => t.id === taskId);
+  if (task) {
+    d.tasks[dateStr] = d.tasks[dateStr].filter(t => t.id !== taskId);
+    set(d);
+    logProgress(dateStr, task.section);
+  }
+}
+
+export function toggleSubtask(dateStr, taskId, subtaskId) {
+  const d = init();
+  const task = (d.tasks[dateStr] || []).find(t => t.id === taskId);
+  if (task) {
+    const st = task.subtasks.find(s => s.id === subtaskId);
+    if (st) {
+      st.completed = !st.completed;
+      const done = task.subtasks.filter(s => s.completed).length;
+      task.progress = Math.round((done / task.subtasks.length) * 100);
+      task.completed = task.subtasks.every(s => s.completed);
+      set(d);
+      logProgress(dateStr, task.section);
     }
   }
 }
 
-export function setDayType(dateStr, dayType) {
-  const data = initData();
-  for (const ym of Object.keys(data.months)) {
-    for (const wk of Object.keys(data.months[ym].weeks)) {
-      if (data.months[ym].weeks[wk].days[dateStr]) {
-        data.months[ym].weeks[wk].days[dateStr].dayType = dayType;
-        setStore(data);
-        return;
-      }
-    }
+export function addSubtask(dateStr, taskId, title) {
+  const d = init();
+  const task = (d.tasks[dateStr] || []).find(t => t.id === taskId);
+  if (task) {
+    task.subtasks.push({ id: uuidv4(), title, completed: false });
+    const done = task.subtasks.filter(s => s.completed).length;
+    task.progress = Math.round((done / task.subtasks.length) * 100);
+    set(d);
   }
 }
 
-export function swapDayTypes(dateStr1, dateStr2) {
-  const data = initData();
-  let dt1 = null, dt2 = null;
-  for (const ym of Object.keys(data.months)) {
-    for (const wk of Object.keys(data.months[ym].weeks)) {
-      const days = data.months[ym].weeks[wk].days;
-      if (days[dateStr1]) dt1 = days[dateStr1].dayType;
-      if (days[dateStr2]) dt2 = days[dateStr2].dayType;
+export function removeSubtask(dateStr, taskId, subtaskId) {
+  const d = init();
+  const task = (d.tasks[dateStr] || []).find(t => t.id === taskId);
+  if (task) {
+    task.subtasks = task.subtasks.filter(s => s.id !== subtaskId);
+    if (task.subtasks.length > 0) {
+      const done = task.subtasks.filter(s => s.completed).length;
+      task.progress = Math.round((done / task.subtasks.length) * 100);
+      task.completed = task.subtasks.every(s => s.completed);
+    } else {
+      task.progress = task.completed ? 100 : 0;
     }
+    set(d);
   }
-  setDayType(dateStr1, dt2);
-  setDayType(dateStr2, dt1);
+}
+
+// ── Day Types ──
+
+export function getDayType(dateStr) {
+  return get().dayTypes[dateStr] || null;
+}
+
+export function setDayType(dateStr, type) {
+  const d = init();
+  d.dayTypes[dateStr] = type;
+  set(d);
 }
 
 export function getWeekDayTypes(weekId) {
-  const data = initData();
-  for (const ym of Object.keys(data.months)) {
-    if (data.months[ym].weeks[weekId]) {
-      const days = data.months[ym].weeks[weekId].days;
-      const result = {};
-      for (const d of Object.keys(days)) {
-        result[d] = days[d].dayType;
-      }
-      return result;
-    }
-  }
-  return {};
+  const d = init();
+  const dates = getDatesInWeek(weekId);
+  const result = {};
+  dates.forEach(ds => { result[ds] = d.dayTypes[ds] || null; });
+  return result;
 }
 
-export function enforceHardDayMinimum(weekId) {
-  const dayTypes = getWeekDayTypes(weekId);
-  const types = Object.values(dayTypes).filter(Boolean);
-  const hardCount = types.filter(t => t === 'hard').length;
-  return hardCount >= 2;
+export function swapDayTypes(d1, d2) {
+  const d = init();
+  const t1 = d.dayTypes[d1], t2 = d.dayTypes[d2];
+  d.dayTypes[d1] = t2 || null;
+  d.dayTypes[d2] = t1 || null;
+  set(d);
 }
+
+export function hardDayCount(weekId) {
+  const types = Object.values(getWeekDayTypes(weekId));
+  return types.filter(t => t === 'hard').length;
+}
+
+// ── Progress ──
 
 function logProgress(dateStr, section) {
-  const data = initData();
-  const day = getDay(dateStr);
-  if (!day) return;
-  const sectionTasks = day.tasks.filter(t => t.section === section);
-  const avgProgress = sectionTasks.length > 0
-    ? sectionTasks.reduce((s, t) => s + t.progress, 0) / sectionTasks.length
+  const d = init();
+  const tasks = d.tasks[dateStr] || [];
+  const secTasks = tasks.filter(t => t.section === section);
+  const avg = secTasks.length > 0
+    ? secTasks.reduce((s, t) => s + t.progress, 0) / secTasks.length
     : 0;
-  const existing = data.progressLog.findIndex(p => p.date === dateStr && p.section === section);
-  const entry = { date: dateStr, section, progress: avgProgress, timestamp: new Date().toISOString() };
-  if (existing >= 0) data.progressLog[existing] = entry;
-  else data.progressLog.push(entry);
-  setStore(data);
+  const idx = d.progressLog.findIndex(p => p.date === dateStr && p.section === section);
+  const entry = { date: dateStr, section, progress: Math.round(avg) };
+  if (idx >= 0) d.progressLog[idx] = entry;
+  else d.progressLog.push(entry);
+  set(d);
 }
 
-export function getProgressLog() {
-  return getStore().progressLog || [];
-}
+export function getProgressLog() { return get().progressLog || []; }
 
-export function getTemplates() {
-  return getStore().templates || [];
-}
+// ── Templates ──
 
-export function addTemplate(template) {
-  const data = initData();
-  const newTpl = { id: uuidv4(), ...template, createdAt: new Date().toISOString() };
-  data.templates.push(newTpl);
-  setStore(data);
+export function getTemplates() { return get().templates || []; }
+
+export function addTemplate(tpl) {
+  const d = init();
+  const newTpl = { id: uuidv4(), ...tpl, createdAt: new Date().toISOString() };
+  d.templates.push(newTpl);
+  set(d);
   return newTpl;
 }
 
 export function removeTemplate(id) {
-  const data = initData();
-  data.templates = data.templates.filter(t => t.id !== id);
-  setStore(data);
+  const d = init();
+  d.templates = d.templates.filter(t => t.id !== id);
+  set(d);
 }
 
-export function getSettings() {
-  return getStore().settings || { email: '', notificationsEnabled: true };
+// ── Settings ──
+
+export function getSettings() { return get().settings || { email: '' }; }
+
+export function updateSettings(s) {
+  const d = init();
+  d.settings = { ...d.settings, ...s };
+  set(d);
 }
 
-export function updateSettings(settings) {
-  const data = initData();
-  data.settings = { ...data.settings, ...settings };
-  setStore(data);
+// ── Date Helpers ──
+
+export function getToday() { return format(new Date(), 'yyyy-MM-dd'); }
+export function getCurrentWeekId() { return format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd'); }
+export function getCurrentMonth() { return format(new Date(), 'yyyy-MM'); }
+
+export function getDatesInWeek(weekId) {
+  const start = parseISO(weekId);
+  return eachDayOfInterval({ start, end: endOfWeek(start, { weekStartsOn: 1 }) }).map(d => format(d, 'yyyy-MM-dd'));
 }
+
+export function getDatesInMonth(ym) {
+  const [y, m] = ym.split('-').map(Number);
+  const start = new Date(y, m - 1, 1);
+  return eachDayOfInterval({ start, end: endOfMonth(start) }).map(d => format(d, 'yyyy-MM-dd'));
+}
+
+export function getWeeksInMonth(ym) {
+  const dates = getDatesInMonth(ym);
+  if (dates.length === 0) return [];
+  const weeks = [];
+  let cursor = startOfWeek(parseISO(dates[0]), { weekStartsOn: 1 });
+
+  for (let i = 0; i < 6; i++) {
+    const wStart = cursor;
+    const wEnd = addDays(wStart, 6);
+    const wDates = eachDayOfInterval({ start: wStart, end: wEnd })
+      .filter(d => format(d, 'yyyy-MM') === ym)
+      .map(d => format(d, 'yyyy-MM-dd'));
+    if (wDates.length > 0) {
+      weeks.push({ id: format(wStart, 'yyyy-MM-dd'), dates: wDates, start: wStart, end: wEnd });
+    }
+    cursor = addDays(cursor, 7);
+    if (format(wStart, 'yyyy-MM') !== ym && weeks.length > 0) break;
+  }
+  return weeks;
+}
+
+// ── Overviews ──
 
 export function getDayOverview(dateStr) {
-  const day = getDay(dateStr);
-  if (!day) return { total: 0, completed: 0, avgProgress: 0, sections: {} };
+  const tasks = getTasks(dateStr);
   const sections = {};
-  for (const s of SECTIONS) {
-    const tasks = day.tasks.filter(t => t.section === s);
+  SECTIONS.forEach(s => {
+    const st = tasks.filter(t => t.section === s);
     sections[s] = {
-      total: tasks.length,
-      completed: tasks.filter(t => t.completed).length,
-      avgProgress: tasks.length > 0 ? tasks.reduce((sum, t) => sum + t.progress, 0) / tasks.length : 0
+      total: st.length,
+      done: st.filter(t => t.completed).length,
+      progress: st.length > 0 ? Math.round(st.reduce((sum, t) => sum + t.progress, 0) / st.length) : 0
     };
-  }
-  const allTasks = day.tasks;
+  });
   return {
-    total: allTasks.length,
-    completed: allTasks.filter(t => t.completed).length,
-    avgProgress: allTasks.length > 0 ? allTasks.reduce((sum, t) => sum + t.progress, 0) / allTasks.length : 0,
+    total: tasks.length,
+    done: tasks.filter(t => t.completed).length,
+    progress: tasks.length > 0 ? Math.round(tasks.reduce((s, t) => s + t.progress, 0) / tasks.length) : 0,
     sections
   };
 }
 
 export function getWeekOverview(weekId) {
-  const data = initData();
-  for (const ym of Object.keys(data.months)) {
-    if (data.months[ym].weeks[weekId]) {
-      const days = data.months[ym].weeks[weekId].days;
-      let totalTasks = 0, completedTasks = 0, totalProgress = 0, count = 0;
-      for (const d of Object.keys(days)) {
-        const overview = getDayOverview(d);
-        totalTasks += overview.total;
-        completedTasks += overview.completed;
-        if (overview.total > 0) {
-          totalProgress += overview.avgProgress;
-          count++;
-        }
-      }
-      return {
-        totalTasks,
-        completedTasks,
-        avgProgress: count > 0 ? totalProgress / count : 0,
-        dayTypes: getWeekDayTypes(weekId)
-      };
-    }
-  }
-  return { totalTasks: 0, completedTasks: 0, avgProgress: 0, dayTypes: {} };
+  const dates = getDatesInWeek(weekId);
+  let total = 0, done = 0, progSum = 0, count = 0;
+  dates.forEach(ds => {
+    const ov = getDayOverview(ds);
+    total += ov.total;
+    done += ov.done;
+    if (ov.total > 0) { progSum += ov.progress; count++; }
+  });
+  return { total, done, progress: count > 0 ? Math.round(progSum / count) : 0 };
 }
 
-export function getMonthOverview(yearMonth) {
-  const data = initData();
-  if (!data.months[yearMonth]) return { totalTasks: 0, completedTasks: 0, avgProgress: 0 };
-  const weeks = data.months[yearMonth].weeks;
-  let totalTasks = 0, completedTasks = 0, totalProgress = 0, count = 0;
-  for (const wk of Object.keys(weeks)) {
-    const overview = getWeekOverview(wk);
-    totalTasks += overview.totalTasks;
-    completedTasks += overview.completedTasks;
-    if (overview.totalTasks > 0) {
-      totalProgress += overview.avgProgress;
-      count++;
-    }
-  }
-  return {
-    totalTasks,
-    completedTasks,
-    avgProgress: count > 0 ? totalProgress / count : 0
-  };
-}
-
-export function getDatesInMonth(yearMonth) {
-  const [y, m] = yearMonth.split('-').map(Number);
-  const start = new Date(y, m - 1, 1);
-  const end = endOfMonth(start);
-  return eachDayOfInterval({ start, end }).map(d => format(d, 'yyyy-MM-dd'));
-}
-
-export function getDatesInWeek(weekId) {
-  const start = parseISO(weekId);
-  const end = endOfWeek(start, { weekStartsOn: 1 });
-  return eachDayOfInterval({ start, end }).map(d => format(d, 'yyyy-MM-dd'));
-}
-
-export function getCurrentWeekId() {
-  return format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd');
-}
-
-export function getCurrentMonth() {
-  return format(new Date(), 'yyyy-MM');
-}
-
-export function getToday() {
-  return format(new Date(), 'yyyy-MM-dd');
-}
-
-export function getAllSections() {
-  return SECTIONS;
-}
-
-export function getAllDayTypes() {
-  return DAY_TYPES;
-}
-
-export function moveTaskToDate(fromDate, taskId, toDate) {
-  const data = initData();
-  let movedTask = null;
-  for (const ym of Object.keys(data.months)) {
-    for (const wk of Object.keys(data.months[ym].weeks)) {
-      const fromDay = data.months[ym].weeks[wk].days[fromDate];
-      if (fromDay) {
-        const idx = fromDay.tasks.findIndex(t => t.id === taskId);
-        if (idx >= 0) {
-          movedTask = fromDay.tasks.splice(idx, 1)[0];
-          break;
-        }
-      }
-    }
-    if (movedTask) break;
-  }
-  if (movedTask) {
-    ensureDay(toDate);
-    for (const ym of Object.keys(data.months)) {
-      for (const wk of Object.keys(data.months[ym].weeks)) {
-        const toDay = data.months[ym].weeks[wk].days[toDate];
-        if (toDay) {
-          toDay.tasks.push(movedTask);
-          break;
-        }
-      }
-    }
-    setStore(data);
-  }
+export function getMonthOverview(ym) {
+  const dates = getDatesInMonth(ym);
+  let total = 0, done = 0, progSum = 0, count = 0;
+  dates.forEach(ds => {
+    const ov = getDayOverview(ds);
+    total += ov.total;
+    done += ov.done;
+    if (ov.total > 0) { progSum += ov.progress; count++; }
+  });
+  return { total, done, progress: count > 0 ? Math.round(progSum / count) : 0 };
 }
 
 export function getUpcomingTasks() {
   const today = getToday();
-  const data = initData();
+  const d = init();
   const tasks = [];
-  for (const ym of Object.keys(data.months)) {
-    for (const wk of Object.keys(data.months[ym].weeks)) {
-      for (const d of Object.keys(data.months[ym].weeks[wk].days)) {
-        if (d >= today) {
-          const day = data.months[ym].weeks[wk].days[d];
-          for (const t of day.tasks) {
-            if (!t.completed) tasks.push({ ...t, date: d });
-          }
-        }
-      }
+  Object.keys(d.tasks).forEach(dateStr => {
+    if (dateStr >= today) {
+      d.tasks[dateStr].forEach(t => {
+        if (!t.completed) tasks.push({ ...t, date: dateStr });
+      });
     }
-  }
+  });
   return tasks.sort((a, b) => a.date.localeCompare(b.date)).slice(0, 10);
 }
 
-export function getNextDayType(weekId, preferredType) {
-  const dayTypes = getWeekDayTypes(weekId);
-  const dates = getDatesInWeek(weekId);
-  const today = getToday();
-  for (const d of dates) {
-    if (d >= today && !dayTypes[d]) return { date: d, type: preferredType };
-  }
-  return null;
-}
+export function getAllSections() { return SECTIONS; }
+export function getAllDayTypes() { return DAY_TYPES; }

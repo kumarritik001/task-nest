@@ -1,200 +1,519 @@
 import React, { useState, useEffect } from 'react'
-import { getToday, getCurrentWeekId, getCurrentMonth } from './utils/storage'
+import { format, parseISO, addDays, startOfWeek } from 'date-fns'
+import {
+  getToday, getCurrentWeekId, getCurrentMonth,
+  getTasks, getDayOverview, getWeekOverview, getMonthOverview,
+  getDayType, setDayType, swapDayTypes, hardDayCount,
+  getAllSections, getAllDayTypes, getDatesInWeek, getDatesInMonth, getWeeksInMonth,
+  getProgressLog, getTemplates, addTemplate, removeTemplate,
+  getSettings, updateSettings, getUpcomingTasks
+} from './utils/storage'
 import { startNotificationService } from './utils/notifications'
-import { getUpcomingTasks } from './utils/storage'
-import DayView from './components/DayView'
-import WeekView from './components/WeekView'
-import MonthView from './components/MonthView'
-import ProgressChart from './components/ProgressChart'
-import QuotesSection from './components/QuotesSection'
-import NotificationBanner from './components/NotificationBanner'
+import { getCriticismQuote, getAppreciationQuote, getAllCriticismQuotes, getAllAppreciationQuotes } from './utils/quotes'
+import { Line } from 'react-chartjs-2'
+import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend, Filler } from 'chart.js'
+import TaskCard from './components/TaskCard'
+import AddTaskModal from './components/AddTaskModal'
 
-const NAV_ITEMS = [
-  { id: 'day', label: 'Today', icon: '📋', section: 'planning' },
-  { id: 'week', label: 'Week', icon: '📅', section: 'planning' },
-  { id: 'month', label: 'Month', icon: '📆', section: 'planning' },
-  { id: 'progress', label: 'Progress', icon: '📊', section: 'insights' },
-  { id: 'quotes', label: 'Reality Check', icon: '🔥', section: 'insights' },
-  { id: 'settings', label: 'Settings', icon: '⚙️', section: 'config' },
-];
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend, Filler);
 
+const SECTIONS = getAllSections();
+const DAY_TYPES = getAllDayTypes();
+const SECTION_COLORS = {
+  'Core Engineering': { bg: '#FEF3C7', text: '#92400E', tag: 'tag-core' },
+  'Project': { bg: '#DBEAFE', text: '#1E40AF', tag: 'tag-project' },
+  'Job': { bg: '#D1FAE5', text: '#065F46', tag: 'tag-job' },
+  'Market Analysis': { bg: '#EDE9FE', text: '#5B21B6', tag: 'tag-market' },
+};
+
+// ═══════════════════════════════════════════
+// APP
+// ═══════════════════════════════════════════
 export default function App() {
-  const [activeView, setActiveView] = useState('day');
+  const [view, setView] = useState('today');
   const [selectedDate, setSelectedDate] = useState(getToday());
   const [selectedWeek, setSelectedWeek] = useState(getCurrentWeekId());
   const [selectedMonth, setSelectedMonth] = useState(getCurrentMonth());
-  const [notificationDismissed, setNotificationDismissed] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
 
-  useEffect(() => {
-    startNotificationService(getUpcomingTasks);
-  }, []);
+  useEffect(() => { startNotificationService(getUpcomingTasks); }, []);
 
-  const navigateToDay = (dateStr) => {
-    setSelectedDate(dateStr);
-    setActiveView('day');
-  };
+  const refresh = () => setRefreshKey(k => k + 1);
 
-  const navigateToWeek = (weekId) => {
-    setSelectedWeek(weekId);
-    setActiveView('week');
-  };
+  const goDay = (d) => { setSelectedDate(d); setView('today'); };
+  const goWeek = (w) => { setSelectedWeek(w); setView('week'); };
 
-  const renderContent = () => {
-    switch (activeView) {
-      case 'day':
-        return <DayView dateStr={selectedDate} />;
-      case 'week':
-        return <WeekView weekId={selectedWeek} onNavigateToDay={navigateToDay} />;
-      case 'month':
-        return <MonthView yearMonth={selectedMonth} onNavigateToWeek={navigateToWeek} onNavigateToDay={navigateToDay} />;
-      case 'progress':
-        return <ProgressChart />;
-      case 'quotes':
-        return <QuotesSection />;
-      case 'settings':
-        return <SettingsView />;
-      default:
-        return <DayView dateStr={selectedDate} />;
-    }
-  };
+  const navItems = [
+    { group: 'Planning', items: [
+      { id: 'today', icon: '◎', label: 'Today' },
+      { id: 'week', icon: '▦', label: 'Week Planner' },
+      { id: 'month', icon: '▣', label: 'Month View' },
+    ]},
+    { group: 'Insights', items: [
+      { id: 'progress', icon: '◐', label: 'Progress' },
+      { id: 'quotes', icon: '⚡', label: 'Reality Check' },
+    ]},
+    { group: 'Config', items: [
+      { id: 'settings', icon: '⚙', label: 'Settings' },
+    ]},
+  ];
 
-  const sections = [...new Set(NAV_ITEMS.map(n => n.section))];
+  const todayOv = getDayOverview(getToday());
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh' }}>
-      {/* Sidebar */}
-      <nav className="sidebar">
-        <div className="sidebar-logo">
-          TaskNest
-          <span>Track. Plan. Deliver.</span>
+    <div style={{ display: 'flex', minHeight: '100vh' }} key={refreshKey}>
+      <aside className="sidebar">
+        <div className="sidebar-brand">
+          <h1><span>●</span> TaskNest</h1>
+          <p>Track · Plan · Deliver</p>
         </div>
+        <nav className="sidebar-nav">
+          {navItems.map(g => (
+            <div key={g.group}>
+              <div className="nav-group-label">{g.group}</div>
+              {g.items.map(n => (
+                <button key={n.id} className={`nav-btn ${view === n.id ? 'active' : ''}`} onClick={() => setView(n.id)}>
+                  <span className="icon">{n.icon}</span>
+                  <span>{n.label}</span>
+                  {n.id === 'today' && todayOv.total > 0 && (
+                    <span className="badge">{todayOv.done}/{todayOv.total}</span>
+                  )}
+                </button>
+              ))}
+            </div>
+          ))}
+        </nav>
+        <div className="sidebar-footer">
+          {getToday()} · {Object.keys(get().tasks || {}).length} days tracked
+        </div>
+      </aside>
 
-        {sections.map(section => (
-          <React.Fragment key={section}>
-            <div className="nav-section">{section}</div>
-            {NAV_ITEMS.filter(n => n.section === section).map(item => (
-              <button
-                key={item.id}
-                className={`nav-item ${activeView === item.id ? 'active' : ''}`}
-                onClick={() => setActiveView(item.id)}
-              >
-                <span className="icon">{item.icon}</span>
-                {item.label}
-              </button>
-            ))}
-          </React.Fragment>
-        ))}
-      </nav>
-
-      {/* Main Content */}
-      <main className="main-content">
-        {!notificationDismissed && (
-          <div style={{ marginBottom: '16px' }}>
-            <NotificationBanner onDismiss={() => setNotificationDismissed(true)} />
-          </div>
-        )}
-        {renderContent()}
+      <main className="main">
+        {view === 'today' && <TodayView dateStr={selectedDate} refresh={refresh} goDay={goDay} />}
+        {view === 'week' && <WeekView weekId={selectedWeek} refresh={refresh} goDay={goDay} goWeek={goWeek} />}
+        {view === 'month' && <MonthView month={selectedMonth} refresh={refresh} goDay={goDay} goWeek={goWeek} />}
+        {view === 'progress' && <ProgressView />}
+        {view === 'quotes' && <QuotesView />}
+        {view === 'settings' && <SettingsView />}
       </main>
     </div>
   );
 }
 
+function get() { try { return JSON.parse(localStorage.getItem('tn_data')) || {}; } catch { return {}; } }
+
+// ═══════════════════════════════════════════
+// TODAY VIEW
+// ═══════════════════════════════════════════
+function TodayView({ dateStr, refresh, goDay }) {
+  const [showAdd, setShowAdd] = useState(false);
+  const [activeSection, setActiveSection] = useState('All');
+  const tasks = getTasks(dateStr);
+  const ov = getDayOverview(dateStr);
+  const dayType = getDayType(dateStr);
+  const d = parseISO(dateStr);
+  const today = getToday();
+
+  const filtered = activeSection === 'All' ? tasks : tasks.filter(t => t.section === activeSection);
+
+  return (
+    <>
+      <div className="topbar">
+        <div className="topbar-left">
+          <div>
+            <h2>{format(d, 'EEEE')}</h2>
+            <div className="subtitle">{format(d, 'MMMM d, yyyy')}</div>
+          </div>
+        </div>
+        <div className="topbar-right">
+          <button className="btn btn-ghost btn-sm" onClick={() => goDay(format(addDays(d, -1), 'yyyy-MM-dd'))}>← Prev</button>
+          {dateStr !== today && <button className="btn btn-ghost btn-sm" onClick={() => goDay(today)}>Today</button>}
+          <button className="btn btn-ghost btn-sm" onClick={() => goDay(format(addDays(d, 1), 'yyyy-MM-dd'))}>Next →</button>
+          <button className="btn btn-primary" onClick={() => setShowAdd(true)}>+ New Task</button>
+        </div>
+      </div>
+
+      <div className="page-body">
+        <div className="stats-row">
+          <div className="stat-card yellow">
+            <div className="stat-label">Total Tasks</div>
+            <div className="stat-value">{ov.total}</div>
+            <div className="stat-sub">for this day</div>
+          </div>
+          <div className="stat-card green">
+            <div className="stat-label">Completed</div>
+            <div className="stat-value">{ov.done}</div>
+            <div className="stat-sub">{ov.total > 0 ? Math.round((ov.done / ov.total) * 100) : 0}% done</div>
+          </div>
+          <div className="stat-card orange">
+            <div className="stat-label">In Progress</div>
+            <div className="stat-value">{ov.total - ov.done}</div>
+            <div className="stat-sub">remaining</div>
+          </div>
+          <div className="stat-card blue">
+            <div className="stat-label">Day Type</div>
+            <div className="stat-value" style={{ textTransform: 'capitalize' }}>{dayType || '—'}</div>
+            <div className="stat-sub">
+              {DAY_TYPES.map(dt => (
+                <button
+                  key={dt}
+                  className={`day-type-btn ${dt} ${dayType === dt ? 'active' : ''}`}
+                  style={{ marginRight: 4 }}
+                  onClick={() => { setDayType(dateStr, dt); refresh(); }}
+                >
+                  {dt}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {ov.total > 0 && (
+          <div style={{ marginBottom: 20 }}>
+            <div className="progress-track" style={{ height: 8 }}>
+              <div className={`progress-fill ${ov.progress > 75 ? 'hot' : ov.progress > 30 ? 'warm' : 'cold'}`} style={{ width: `${ov.progress}%` }} />
+            </div>
+            <div className="progress-info"><span>{ov.progress}% overall</span></div>
+          </div>
+        )}
+
+        <div className="section-tabs">
+          <button className={`section-tab ${activeSection === 'All' ? 'active' : ''}`} onClick={() => setActiveSection('All')}>All</button>
+          {SECTIONS.map(s => (
+            <button key={s} className={`section-tab ${activeSection === s ? 'active' : ''}`} onClick={() => setActiveSection(s)}>
+              {s} {tasks.filter(t => t.section === s).length > 0 && `(${tasks.filter(t => t.section === s).length})`}
+            </button>
+          ))}
+        </div>
+
+        <div className="task-list">
+          {filtered.length === 0 ? (
+            <div className="empty">
+              <div className="icon">📋</div>
+              <p>No tasks yet. Click "+ New Task" to get started.</p>
+            </div>
+          ) : filtered.map(task => (
+            <TaskCard key={task.id} task={task} dateStr={dateStr} refresh={refresh} />
+          ))}
+        </div>
+      </div>
+
+      {showAdd && <AddTaskModal dateStr={dateStr} onClose={() => { setShowAdd(false); refresh(); }} />}
+    </>
+  );
+}
+
+// ═══════════════════════════════════════════
+// WEEK VIEW
+// ═══════════════════════════════════════════
+function WeekView({ weekId, refresh, goDay, goWeek }) {
+  const dates = getDatesInWeek(weekId);
+  const ov = getWeekOverview(weekId);
+  const today = getToday();
+  const weekStart = parseISO(weekId);
+  const hc = hardDayCount(weekId);
+
+  return (
+    <>
+      <div className="topbar">
+        <div className="topbar-left">
+          <div>
+            <h2>Week Planner</h2>
+            <div className="subtitle">{format(weekStart, 'MMM d')} — {format(addDays(weekStart, 6), 'MMM d, yyyy')}</div>
+          </div>
+        </div>
+        <div className="topbar-right">
+          <button className="btn btn-ghost btn-sm" onClick={() => goWeek(format(addDays(parseISO(weekId), -7), 'yyyy-MM-dd'))}>← Prev</button>
+          <button className="btn btn-ghost btn-sm" onClick={() => goWeek(getCurrentWeekId())}>This Week</button>
+          <button className="btn btn-ghost btn-sm" onClick={() => goWeek(format(addDays(parseISO(weekId), 7), 'yyyy-MM-dd'))}>Next →</button>
+        </div>
+      </div>
+
+      <div className="page-body">
+        <div className="stats-row">
+          <div className="stat-card yellow"><div className="stat-label">Total Tasks</div><div className="stat-value">{ov.total}</div></div>
+          <div className="stat-card green"><div className="stat-label">Completed</div><div className="stat-value">{ov.done}</div></div>
+          <div className="stat-card orange"><div className="stat-label">Progress</div><div className="stat-value">{ov.progress}%</div></div>
+          <div className={`stat-card ${hc >= 2 ? 'green' : 'orange'}`}>
+            <div className="stat-label">Hard Days</div>
+            <div className="stat-value">{hc}/7</div>
+            <div className="stat-sub">{hc < 2 ? '⚠ Need ≥2 hard days' : '✓ Minimum met'}</div>
+          </div>
+        </div>
+
+        <h3 style={{ fontSize: '0.85rem', marginBottom: 12, fontWeight: 700 }}>Day Allocation</h3>
+        <div className="day-grid" style={{ marginBottom: 28 }}>
+          {dates.map(ds => {
+            const d2 = parseISO(ds);
+            const dt = getDayType(ds);
+            const dov = getDayOverview(ds);
+            const isToday = ds === today;
+            return (
+              <div key={ds} className={`day-cell ${isToday ? 'today' : ''}`} onClick={() => goDay(ds)}>
+                {dt && <div className={`day-type-dot ${dt}`} />}
+                <div className="day-label">{format(d2, 'EEE')}</div>
+                <div className="day-num">{format(d2, 'd')}</div>
+                {dov.total > 0 && <div className="day-count">{dov.done}/{dov.total}</div>}
+                {dt && <div style={{ fontSize: '0.55rem', textTransform: 'capitalize', color: dt === 'hard' ? 'var(--red)' : dt === 'moderate' ? 'var(--orange)' : 'var(--green)', fontWeight: 600, marginTop: 2 }}>{dt}</div>}
+              </div>
+            );
+          })}
+        </div>
+
+        <h3 style={{ fontSize: '0.85rem', marginBottom: 12, fontWeight: 700 }}>Day Details</h3>
+        {dates.map(ds => {
+          const dov = getDayOverview(ds);
+          if (dov.total === 0) return null;
+          return (
+            <div key={ds} className="task-card" style={{ cursor: 'pointer', marginBottom: 8 }} onClick={() => goDay(ds)}>
+              <div style={{ padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <span style={{ fontWeight: 600, fontSize: '0.88rem' }}>{format(parseISO(ds), 'EEEE, MMM d')}</span>
+                  {getDayType(ds) && <span className={`tag tag-${getDayType(ds) === 'hard' ? 'hard' : getDayType(ds) === 'moderate' ? 'moderate' : 'easy'}`} style={{ marginLeft: 8 }}>{getDayType(ds)}</span>}
+                </div>
+                <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{dov.done}/{dov.total} done</span>
+              </div>
+              <div style={{ padding: '0 18px 14px' }}>
+                <div className="progress-track"><div className={`progress-fill ${dov.progress > 75 ? 'hot' : dov.progress > 30 ? 'warm' : 'cold'}`} style={{ width: `${dov.progress}%` }} /></div>
+              </div>
+            </div>
+          );
+        })}
+
+        {dates.every(ds => getDayOverview(ds).total === 0) && (
+          <div className="empty"><div className="icon">▦</div><p>No tasks this week. Go to Today to add some.</p></div>
+        )}
+      </div>
+    </>
+  );
+}
+
+// ═══════════════════════════════════════════
+// MONTH VIEW
+// ═══════════════════════════════════════════
+function MonthView({ month, refresh, goDay, goWeek }) {
+  const dates = getDatesInMonth(month);
+  const weeks = getWeeksInMonth(month);
+  const ov = getMonthOverview(month);
+  const today = getToday();
+  const [y, m] = month.split('-').map(Number);
+
+  return (
+    <>
+      <div className="topbar">
+        <div className="topbar-left">
+          <div>
+            <h2>{format(new Date(y, m - 1), 'MMMM yyyy')}</h2>
+            <div className="subtitle">Monthly overview</div>
+          </div>
+        </div>
+        <div className="topbar-right">
+          <button className="btn btn-ghost btn-sm" onClick={() => { const d = new Date(y, m - 2); refresh(); }}>← Prev</button>
+          <button className="btn btn-ghost btn-sm" onClick={() => refresh()}>This Month</button>
+          <button className="btn btn-ghost btn-sm" onClick={() => { const d = new Date(y, m); refresh(); }}>Next →</button>
+        </div>
+      </div>
+
+      <div className="page-body">
+        <div className="stats-row">
+          <div className="stat-card yellow"><div className="stat-label">Total Tasks</div><div className="stat-value">{ov.total}</div></div>
+          <div className="stat-card green"><div className="stat-label">Completed</div><div className="stat-value">{ov.done}</div></div>
+          <div className="stat-card orange"><div className="stat-label">Avg Progress</div><div className="stat-value">{ov.progress}%</div></div>
+          <div className="stat-card blue"><div className="stat-label">Weeks</div><div className="stat-value">{weeks.length}</div></div>
+        </div>
+
+        <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: 20, marginBottom: 24 }}>
+          <h3 style={{ fontSize: '0.85rem', marginBottom: 14, fontWeight: 700 }}>Calendar</h3>
+          <div className="cal-grid">
+            {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(d => <div key={d} className="cal-header">{d}</div>)}
+            {(() => {
+              const first = parseISO(dates[0]);
+              const startDow = (first.getDay() + 6) % 7;
+              const blanks = Array(startDow).fill(null);
+              return [...blanks, ...dates].map((ds, i) => {
+                if (!ds) return <div key={`b${i}`} />;
+                const dov = getDayOverview(ds);
+                return (
+                  <div key={ds} className={`cal-day ${ds === today ? 'today' : ''} ${dov.total > 0 ? 'has-tasks' : ''}`} onClick={() => goDay(ds)}>
+                    {format(parseISO(ds), 'd')}
+                    {dov.total > 0 && <div className="cal-count">{dov.done}/{dov.total}</div>}
+                  </div>
+                );
+              });
+            })()}
+          </div>
+        </div>
+
+        <h3 style={{ fontSize: '0.85rem', marginBottom: 12, fontWeight: 700 }}>Weeks</h3>
+        {weeks.map(w => {
+          let total = 0, done = 0;
+          w.dates.forEach(ds => { const o = getDayOverview(ds); total += o.total; done += o.done; });
+          return (
+            <div key={w.id} className="task-card" style={{ cursor: 'pointer', marginBottom: 8 }} onClick={() => goWeek(w.id)}>
+              <div style={{ padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontWeight: 600, fontSize: '0.88rem' }}>{format(w.start, 'MMM d')} — {format(w.end, 'MMM d')}</span>
+                <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{done}/{total} tasks</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </>
+  );
+}
+
+// ═══════════════════════════════════════════
+// PROGRESS VIEW
+// ═══════════════════════════════════════════
+function ProgressView() {
+  const log = getProgressLog();
+  const dates = [...new Set(log.map(p => p.date))].sort().slice(-30);
+
+  const datasets = SECTIONS.map(s => ({
+    label: s,
+    data: dates.map(ds => { const e = log.find(p => p.date === ds && p.section === s); return e ? e.progress : null; }),
+    borderColor: s === 'Core Engineering' ? '#F5B731' : s === 'Project' ? '#3B82F6' : s === 'Job' ? '#22C55E' : '#8B5CF6',
+    backgroundColor: (s === 'Core Engineering' ? '#F5B731' : s === 'Project' ? '#3B82F6' : s === 'Job' ? '#22C55E' : '#8B5CF6') + '15',
+    fill: true, tension: 0.4, pointRadius: 3, spanGaps: true
+  }));
+
+  return (
+    <>
+      <div className="topbar">
+        <div className="topbar-left"><div><h2>Progress</h2><div className="subtitle">Track progress across all sections</div></div></div>
+      </div>
+      <div className="page-body">
+        <div className="chart-card" style={{ height: 380 }}>
+          {dates.length > 0 ? (
+            <Line data={{ labels: dates.map(d => format(parseISO(d), 'MMM d')), datasets }}
+              options={{ responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top', labels: { usePointStyle: true, padding: 16, font: { size: 11 } } } },
+                scales: { y: { min: 0, max: 100, ticks: { callback: v => v + '%' } }, x: { ticks: { maxTicksLimit: 12 } } } }} />
+          ) : (
+            <div className="empty"><div className="icon">◐</div><p>No data yet. Complete tasks to see your progress chart.</p></div>
+          )}
+        </div>
+
+        <div className="stats-row">
+          {SECTIONS.map(s => {
+            const sl = log.filter(p => p.section === s);
+            const latest = sl[sl.length - 1];
+            return (
+              <div key={s} className="stat-card" style={{ borderLeft: `3px solid ${SECTION_COLORS[s].bg}` }}>
+                <div className="stat-label">{s}</div>
+                <div className="stat-value" style={{ fontSize: '1.3rem' }}>{latest ? latest.progress + '%' : '—'}</div>
+                <div className="stat-sub">{sl.length} data points</div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ═══════════════════════════════════════════
+// QUOTES VIEW
+// ═══════════════════════════════════════════
+function QuotesView() {
+  const [crit, setCrit] = useState(getCriticismQuote());
+  const [apprec, setApprec] = useState(getAppreciationQuote());
+  const [showAll, setShowAll] = useState(false);
+
+  return (
+    <>
+      <div className="topbar">
+        <div className="topbar-left"><div><h2>Reality Check</h2><div className="subtitle">Criticism when you slack · Motivation when you grind</div></div></div>
+        <div className="topbar-right">
+          <button className="btn btn-ghost btn-sm" onClick={() => { setCrit(getCriticismQuote()); setApprec(getAppreciationQuote()); }}>↻ Refresh</button>
+        </div>
+      </div>
+      <div className="page-body">
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 24 }}>
+          <div className="quote-block criticism">
+            <p>"{crit.text}"</p>
+            <div className="author">— {crit.author}</div>
+          </div>
+          <div className="quote-block appreciation">
+            <p>"{apprec.text}"</p>
+            <div className="author">— {apprec.author}</div>
+          </div>
+        </div>
+
+        <button className="btn btn-ghost btn-sm" onClick={() => setShowAll(!showAll)} style={{ marginBottom: 14 }}>
+          {showAll ? 'Collapse' : `Show All (${getAllCriticismQuotes().length + getAllAppreciationQuotes().length})`}
+        </button>
+
+        {showAll && (
+          <>
+            <h3 style={{ fontSize: '0.85rem', color: 'var(--red)', marginBottom: 10, fontWeight: 700 }}>🔥 When You're Slacking</h3>
+            {getAllCriticismQuotes().map((q, i) => (
+              <div key={i} className="quote-block criticism"><p>"{q.text}"</p><div className="author">— {q.author}</div></div>
+            ))}
+            <h3 style={{ fontSize: '0.85rem', color: 'var(--green)', marginTop: 20, marginBottom: 10, fontWeight: 700 }}>💪 When You're Grinding</h3>
+            {getAllAppreciationQuotes().map((q, i) => (
+              <div key={i} className="quote-block appreciation"><p>"{q.text}"</p><div className="author">— {q.author}</div></div>
+            ))}
+          </>
+        )}
+      </div>
+    </>
+  );
+}
+
+// ═══════════════════════════════════════════
+// SETTINGS VIEW
+// ═══════════════════════════════════════════
 function SettingsView() {
-  const [email, setEmail] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('tasknest_data'))?.settings?.email || ''; }
-    catch { return ''; }
-  });
+  const [email, setEmail] = useState(() => getSettings().email || '');
   const [saved, setSaved] = useState(false);
 
-  const handleSave = () => {
-    const data = JSON.parse(localStorage.getItem('tasknest_data') || '{}');
-    if (!data.settings) data.settings = {};
-    data.settings.email = email;
-    localStorage.setItem('tasknest_data', JSON.stringify(data));
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
-  };
+  const save = () => { updateSettings({ email }); setSaved(true); setTimeout(() => setSaved(false), 2000); };
 
-  const handleExport = () => {
-    const data = localStorage.getItem('tasknest_data');
-    const blob = new Blob([data], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
+  const exportData = () => {
+    const blob = new Blob([localStorage.getItem('tn_data') || '{}'], { type: 'application/json' });
     const a = document.createElement('a');
-    a.href = url;
-    a.download = `tasknest-backup-${new Date().toISOString().split('T')[0]}.json`;
+    a.href = URL.createObjectURL(blob);
+    a.download = `tasknest-${getToday()}.json`;
     a.click();
-    URL.revokeObjectURL(url);
   };
 
-  const handleImport = (e) => {
+  const importData = (e) => {
     const file = e.target.files[0];
     if (!file) return;
     const reader = new FileReader();
     reader.onload = (ev) => {
-      try {
-        const data = JSON.parse(ev.target.result);
-        localStorage.setItem('tasknest_data', JSON.stringify(data));
-        window.location.reload();
-      } catch { alert('Invalid backup file'); }
+      try { localStorage.setItem('tn_data', ev.target.result); window.location.reload(); }
+      catch { alert('Invalid file'); }
     };
     reader.readAsText(file);
   };
 
-  const handleClearAll = () => {
-    if (confirm('Are you sure you want to delete ALL data? This cannot be undone.')) {
-      localStorage.removeItem('tasknest_data');
-      window.location.reload();
-    }
-  };
-
   return (
-    <div>
-      <div className="page-header">
-        <h1>Settings</h1>
-        <p>Configure your TaskNest experience</p>
+    <>
+      <div className="topbar">
+        <div className="topbar-left"><div><h2>Settings</h2><div className="subtitle">Configure TaskNest</div></div></div>
       </div>
-
-      <div className="card">
-        <h3 style={{ fontSize: '0.95rem', marginBottom: '12px' }}>Email Notifications</h3>
-        <label>Email Address (for reminders)</label>
-        <input
-          type="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          placeholder="your@email.com"
-        />
-        <button className="btn btn-primary" style={{ marginTop: '12px' }} onClick={handleSave}>
-          {saved ? '✓ Saved!' : 'Save Email'}
-        </button>
-      </div>
-
-      <div className="card" style={{ marginTop: '12px' }}>
-        <h3 style={{ fontSize: '0.95rem', marginBottom: '12px' }}>Data Management</h3>
-        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-          <button className="btn btn-secondary" onClick={handleExport}>
-            📤 Export Backup
-          </button>
-          <label className="btn btn-secondary" style={{ cursor: 'pointer' }}>
-            📥 Import Backup
-            <input type="file" accept=".json" onChange={handleImport} style={{ display: 'none' }} />
-          </label>
-          <button className="btn btn-danger" onClick={handleClearAll}>
-            🗑️ Clear All Data
-          </button>
+      <div className="page-body">
+        <div className="setting-group">
+          <h3>Email for Notifications</h3>
+          <input className="form-input" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="your@email.com" style={{ maxWidth: 360 }} />
+          <button className="btn btn-primary" style={{ marginTop: 10 }} onClick={save}>{saved ? '✓ Saved' : 'Save'}</button>
+        </div>
+        <div className="setting-group">
+          <h3>Data</h3>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="btn btn-ghost" onClick={exportData}>📤 Export</button>
+            <label className="btn btn-ghost" style={{ cursor: 'pointer' }}>📥 Import<input type="file" accept=".json" onChange={importData} style={{ display: 'none' }} /></label>
+            <button className="btn btn-danger" onClick={() => { if (confirm('Delete all data?')) { localStorage.removeItem('tn_data'); window.location.reload(); } }}>🗑 Clear All</button>
+          </div>
+        </div>
+        <div className="setting-group">
+          <h3>About</h3>
+          <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
+            TaskNest — minimalist task tracker with subtasks, 4 focus areas, and progress tracking. Data stays in your browser.
+          </p>
         </div>
       </div>
-
-      <div className="card" style={{ marginTop: '12px' }}>
-        <h3 style={{ fontSize: '0.95rem', marginBottom: '12px' }}>About</h3>
-        <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
-          TaskNest — A minimalist task tracker for chemical engineers preparing for placements.
-          Track your work across months, weeks, and days with 4 focus areas:
-          Core Engineering, Project, Job, and Market Analysis.
-        </p>
-        <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '8px' }}>
-          Built with React • Data stored locally in your browser
-        </p>
-      </div>
-    </div>
+    </>
   );
 }
