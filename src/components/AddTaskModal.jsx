@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
-import { getAllSections, getTemplates, addTemplate, removeTemplate } from '../utils/storage'
-import { addTask } from '../utils/storage'
+import { getAllSections, getTemplates, addTemplate, removeTemplate, getCurrentWeekId, getCurrentMonth } from '../utils/storage'
+import { addTask, addWeeklyTask, addMonthlyTask } from '../utils/storage'
 
 const SECTIONS = getAllSections();
 
@@ -10,6 +10,7 @@ export default function AddTaskModal({ dateStr, onClose }) {
   const [section, setSection] = useState('Core Engineering');
   const [deadline, setDeadline] = useState('');
   const [timeEstimate, setTimeEstimate] = useState('');
+  const [timeSegment, setTimeSegment] = useState('daily');
   const [subtasks, setSubtasks] = useState([]);
   const [newSub, setNewSub] = useState('');
   const [saveTemplate, setSaveTemplate] = useState(false);
@@ -42,10 +43,14 @@ export default function AddTaskModal({ dateStr, onClose }) {
   };
 
   const confirmAdd = () => {
-    addTask(dateStr, {
-      title, description, section, deadline, timeEstimate,
-      subtasks: subtasks.map(s => ({ title: s.title }))
-    });
+    const taskData = { title, description, section, deadline, timeEstimate, subtasks: subtasks.map(s => ({ title: s.title })) };
+    if (timeSegment === 'weekly') {
+      addWeeklyTask(getCurrentWeekId(), taskData);
+    } else if (timeSegment === 'monthly') {
+      addMonthlyTask(getCurrentMonth(), taskData);
+    } else {
+      addTask(dateStr, taskData);
+    }
     if (saveTemplate) {
       addTemplate({ title, description, section, deadline, timeEstimate });
     }
@@ -88,6 +93,29 @@ export default function AddTaskModal({ dateStr, onClose }) {
                   <div className="form-group">
                     <label className="form-label">Description</label>
                     <textarea className="form-textarea" value={description} onChange={e => setDescription(e.target.value)} placeholder="Optional details..." rows={2} />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Time Segment</label>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      {[
+                        { id: 'daily', label: '📅 Daily', desc: 'Today' },
+                        { id: 'weekly', label: '📆 Weekly', desc: 'This week' },
+                        { id: 'monthly', label: '🗓 Monthly', desc: 'This month' },
+                      ].map(seg => (
+                        <button key={seg.id}
+                          onClick={() => setTimeSegment(seg.id)}
+                          style={{
+                            flex: 1, padding: '10px 8px', borderRadius: 'var(--radius-xs)',
+                            border: timeSegment === seg.id ? '2px solid var(--yellow)' : '1px solid var(--border)',
+                            background: timeSegment === seg.id ? 'var(--yellow-bg)' : 'var(--bg-card)',
+                            cursor: 'pointer', textAlign: 'center', transition: 'all 0.15s'
+                          }}
+                        >
+                          <div style={{ fontSize: '0.82rem', fontWeight: 600, color: timeSegment === seg.id ? '#92400E' : 'var(--text)' }}>{seg.label}</div>
+                          <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: 2 }}>{seg.desc}</div>
+                        </button>
+                      ))}
+                    </div>
                   </div>
                   <div className="form-group">
                     <label className="form-label">Section</label>
@@ -140,7 +168,10 @@ export default function AddTaskModal({ dateStr, onClose }) {
             <div className="modal-body">
               <div style={{ padding: '8px 0', fontSize: '0.88rem', lineHeight: 1.7 }}>
                 <p>Task: <strong>{title}</strong></p>
-                <p>Date: <strong>{dateStr}</strong></p>
+                <p>Segment: <strong style={{ textTransform: 'capitalize' }}>{timeSegment}</strong></p>
+                {timeSegment === 'daily' && <p>Date: <strong>{dateStr}</strong></p>}
+                {timeSegment === 'weekly' && <p>Week: <strong>{getCurrentWeekId()}</strong></p>}
+                {timeSegment === 'monthly' && <p>Month: <strong>{getCurrentMonth()}</strong></p>}
                 <p>Section: <strong>{section}</strong></p>
                 {deadline && <p>Deadline: <strong>{deadline}</strong></p>}
                 {timeEstimate && <p>Estimate: <strong>{timeEstimate}</strong></p>}
