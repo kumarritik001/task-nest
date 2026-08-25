@@ -205,6 +205,48 @@ export function moveMonthlyTaskToDay(month, taskId, dateStr) {
   return task;
 }
 
+// ── Move Subtask to Day ──
+
+export function moveSubtaskToDay(weekId, taskId, subtaskId, dateStr, type = 'weekly') {
+  const d = init();
+  const store = type === 'weekly' ? d.weeklyTasks : d.monthlyTasks;
+  const tasks = store[weekId] || [];
+  const task = tasks.find(t => t.id === taskId);
+  if (!task) return null;
+  const subIdx = (task.subtasks || []).findIndex(s => s.id === subtaskId);
+  if (subIdx < 0) return null;
+  const sub = task.subtasks.splice(subIdx, 1)[0];
+  // Create a new daily task from the subtask
+  if (!d.tasks[dateStr]) d.tasks[dateStr] = [];
+  const newTask = {
+    id: uuidv4(),
+    title: sub.title,
+    description: '',
+    section: task.section || 'Core Engineering',
+    progress: sub.completed ? 100 : 0,
+    completed: sub.completed,
+    deadline: task.deadline || null,
+    timeEstimate: '',
+    subtasks: [],
+    createdAt: new Date().toISOString(),
+    movedFrom: type,
+    movedFromTitle: task.title,
+    movedDate: new Date().toISOString()
+  };
+  d.tasks[dateStr].push(newTask);
+  // Update parent progress
+  if (task.subtasks.length > 0) {
+    const done = task.subtasks.filter(s => s.completed).length;
+    task.progress = Math.round((done / task.subtasks.length) * 100);
+    task.completed = task.subtasks.every(s => s.completed);
+  } else {
+    task.progress = 0;
+    task.completed = false;
+  }
+  set(d);
+  return newTask;
+}
+
 // ── Tasks ──
 
 export function getTasks(dateStr) {

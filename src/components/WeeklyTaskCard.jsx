@@ -1,4 +1,6 @@
 import React, { useState } from 'react'
+import { toggleWeeklySubtask, addWeeklySubtask, setWeeklyTaskProgress, removeWeeklyTask,
+         toggleMonthlySubtask, addMonthlySubtask, setMonthlyTaskProgress, removeMonthlyTask, moveSubtaskToDay } from '../utils/storage'
 
 const SECTION_COLORS = {
   'Core Engineering': 'tag-core',
@@ -11,6 +13,8 @@ export default function WeeklyTaskCard({ task, weekId, refresh, onMoveToDay, typ
   const [expanded, setExpanded] = useState(false);
   const [newSub, setNewSub] = useState('');
   const [showAddSub, setShowAddSub] = useState(false);
+  const [moveSubId, setMoveSubId] = useState(null);
+  const [moveDate, setMoveDate] = useState('');
 
   const isWeekly = type === 'weekly';
   const done = task.subtasks ? task.subtasks.filter(s => s.completed).length : 0;
@@ -43,6 +47,14 @@ export default function WeeklyTaskCard({ task, weekId, refresh, onMoveToDay, typ
       else removeMonthlyTask(weekId, task.id);
       refresh();
     }
+  };
+
+  const handleMoveSub = (subId) => {
+    if (!moveDate) return;
+    moveSubtaskToDay(weekId, task.id, subId, moveDate, isWeekly ? 'weekly' : 'monthly');
+    setMoveSubId(null);
+    setMoveDate('');
+    refresh();
   };
 
   return (
@@ -91,11 +103,26 @@ export default function WeeklyTaskCard({ task, weekId, refresh, onMoveToDay, typ
           {expanded && (
             <div className="subtask-list">
               {task.subtasks.map(st => (
-                <div key={st.id} className="subtask-item">
-                  <div className={`subtask-check ${st.completed ? 'done' : ''}`} onClick={() => handleToggleSub(st.id)}>
-                    {st.completed && '✓'}
+                <div key={st.id} className="subtask-item" style={{ justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1 }}>
+                    <div className={`subtask-check ${st.completed ? 'done' : ''}`} onClick={() => handleToggleSub(st.id)}>
+                      {st.completed && '✓'}
+                    </div>
+                    <span className={`subtask-title ${st.completed ? 'done' : ''}`}>{st.title}</span>
                   </div>
-                  <span className={`subtask-title ${st.completed ? 'done' : ''}`}>{st.title}</span>
+                  {moveSubId === st.id ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <input type="date" value={moveDate} onChange={e => setMoveDate(e.target.value)}
+                        style={{ fontSize: '0.65rem', padding: '2px 4px', borderRadius: 3, border: '1px solid var(--border)', width: 110 }} />
+                      <button className="btn btn-sm" style={{ fontSize: '0.6rem', padding: '2px 8px', background: 'var(--yellow)', color: '#000' }}
+                        onClick={() => handleMoveSub(st.id)} disabled={!moveDate}>→</button>
+                      <button className="btn-icon" style={{ fontSize: '0.6rem', width: 18, height: 18 }} onClick={() => { setMoveSubId(null); setMoveDate(''); }}>✕</button>
+                    </div>
+                  ) : (
+                    <button className="btn-icon" title="Move subtask to a day"
+                      style={{ fontSize: '0.55rem', width: 20, height: 20, color: 'var(--yellow-dark)', opacity: 0.7 }}
+                      onClick={() => setMoveSubId(st.id)}>→</button>
+                  )}
                 </div>
               ))}
               {showAddSub ? (
