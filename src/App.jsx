@@ -303,10 +303,30 @@ function WeekView({ weekId, refresh, goDay, goWeek, openAddFor }) {
 
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
           <h3 style={{ fontSize: '0.85rem', fontWeight: 700 }}>Day Allocation</h3>
-          <div style={{ display: 'flex', gap: 10, fontSize: '0.68rem', color: 'var(--text-muted)' }}>
-            <span><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: 'var(--red)', marginRight: 4 }}></span>Hard (≥2/week)</span>
-            <span><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: 'var(--orange)', marginRight: 4 }}></span>Moderate</span>
-            <span><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: 'var(--green)', marginRight: 4 }}></span>Easy</span>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: 10, fontSize: '0.68rem', color: 'var(--text-muted)' }}>
+              <span><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: 'var(--red)', marginRight: 4 }}></span>Hard (≥2/week)</span>
+              <span><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: 'var(--orange)', marginRight: 4 }}></span>Moderate</span>
+              <span><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: 'var(--green)', marginRight: 4 }}></span>Easy</span>
+            </div>
+            <button
+              className="btn btn-sm"
+              style={{ background: 'var(--yellow)', color: '#000', fontSize: '0.68rem', padding: '4px 12px' }}
+              onClick={() => {
+                // Auto: Mon & Thu = hard, rest = easy (skip Sat/Sun from hard)
+                const weekdays = dates.filter((ds, i) => i < 5); // Mon-Fri
+                const hardDays = [weekdays[0], weekdays[3]]; // Mon, Thu
+                dates.forEach(ds => {
+                  const i = dates.indexOf(ds);
+                  if (hardDays.includes(ds)) setDayType(ds, 'hard');
+                  else if (i < 5) setDayType(ds, 'easy'); // weekdays
+                  else setDayType(ds, 'easy'); // weekend = easy
+                });
+                refresh();
+              }}
+            >
+              ⚡ Auto: 2 Hard + Easy
+            </button>
           </div>
         </div>
 
