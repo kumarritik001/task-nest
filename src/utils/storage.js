@@ -14,6 +14,8 @@ function set(d) { localStorage.setItem('tn_data', JSON.stringify(d)); }
 function init() {
   const d = get();
   if (!d.tasks) d.tasks = {};
+  if (!d.weeklyTasks) d.weeklyTasks = {};
+  if (!d.monthlyTasks) d.monthlyTasks = {};
   if (!d.templates) d.templates = {};
   if (!d.templates) d.templates = [];
   if (!d.dayTypes) d.dayTypes = {};
@@ -34,6 +36,173 @@ export function setHours(dateStr, hours) {
   const d = init();
   d.hoursLog[dateStr] = parseFloat(hours) || 0;
   set(d);
+}
+
+// ── Weekly Tasks ──
+
+export function getWeeklyTasks(weekId) {
+  return get().weeklyTasks[weekId] || [];
+}
+
+export function addWeeklyTask(weekId, task) {
+  const d = init();
+  if (!d.weeklyTasks[weekId]) d.weeklyTasks[weekId] = [];
+  const newTask = {
+    id: uuidv4(),
+    title: task.title,
+    description: task.description || '',
+    section: task.section || 'Core Engineering',
+    progress: 0,
+    completed: false,
+    deadline: task.deadline || null,
+    timeEstimate: task.timeEstimate || '',
+    subtasks: (task.subtasks || []).map(st => ({ id: uuidv4(), title: st.title, completed: false })),
+    createdAt: new Date().toISOString()
+  };
+  d.weeklyTasks[weekId].push(newTask);
+  set(d);
+  return newTask;
+}
+
+export function removeWeeklyTask(weekId, taskId) {
+  const d = init();
+  d.weeklyTasks[weekId] = (d.weeklyTasks[weekId] || []).filter(t => t.id !== taskId);
+  set(d);
+}
+
+export function toggleWeeklySubtask(weekId, taskId, subtaskId) {
+  const d = init();
+  const task = (d.weeklyTasks[weekId] || []).find(t => t.id === taskId);
+  if (task) {
+    const st = task.subtasks.find(s => s.id === subtaskId);
+    if (st) {
+      st.completed = !st.completed;
+      const done = task.subtasks.filter(s => s.completed).length;
+      task.progress = Math.round((done / task.subtasks.length) * 100);
+      task.completed = task.subtasks.every(s => s.completed);
+      set(d);
+    }
+  }
+}
+
+export function addWeeklySubtask(weekId, taskId, title) {
+  const d = init();
+  const task = (d.weeklyTasks[weekId] || []).find(t => t.id === taskId);
+  if (task) {
+    task.subtasks.push({ id: uuidv4(), title, completed: false });
+    const done = task.subtasks.filter(s => s.completed).length;
+    task.progress = Math.round((done / task.subtasks.length) * 100);
+    set(d);
+  }
+}
+
+export function setWeeklyTaskProgress(weekId, taskId, progress) {
+  const d = init();
+  const task = (d.weeklyTasks[weekId] || []).find(t => t.id === taskId);
+  if (task) {
+    task.progress = progress;
+    task.completed = progress >= 100;
+    set(d);
+  }
+}
+
+// ── Monthly Tasks ──
+
+export function getMonthlyTasks(month) {
+  return get().monthlyTasks[month] || [];
+}
+
+export function addMonthlyTask(month, task) {
+  const d = init();
+  if (!d.monthlyTasks[month]) d.monthlyTasks[month] = [];
+  const newTask = {
+    id: uuidv4(),
+    title: task.title,
+    description: task.description || '',
+    section: task.section || 'Core Engineering',
+    progress: 0,
+    completed: false,
+    deadline: task.deadline || null,
+    timeEstimate: task.timeEstimate || '',
+    subtasks: (task.subtasks || []).map(st => ({ id: uuidv4(), title: st.title, completed: false })),
+    createdAt: new Date().toISOString()
+  };
+  d.monthlyTasks[month].push(newTask);
+  set(d);
+  return newTask;
+}
+
+export function removeMonthlyTask(month, taskId) {
+  const d = init();
+  d.monthlyTasks[month] = (d.monthlyTasks[month] || []).filter(t => t.id !== taskId);
+  set(d);
+}
+
+export function toggleMonthlySubtask(month, taskId, subtaskId) {
+  const d = init();
+  const task = (d.monthlyTasks[month] || []).find(t => t.id === taskId);
+  if (task) {
+    const st = task.subtasks.find(s => s.id === subtaskId);
+    if (st) {
+      st.completed = !st.completed;
+      const done = task.subtasks.filter(s => s.completed).length;
+      task.progress = Math.round((done / task.subtasks.length) * 100);
+      task.completed = task.subtasks.every(s => s.completed);
+      set(d);
+    }
+  }
+}
+
+export function addMonthlySubtask(month, taskId, title) {
+  const d = init();
+  const task = (d.monthlyTasks[month] || []).find(t => t.id === taskId);
+  if (task) {
+    task.subtasks.push({ id: uuidv4(), title, completed: false });
+    const done = task.subtasks.filter(s => s.completed).length;
+    task.progress = Math.round((done / task.subtasks.length) * 100);
+    set(d);
+  }
+}
+
+export function setMonthlyTaskProgress(month, taskId, progress) {
+  const d = init();
+  const task = (d.monthlyTasks[month] || []).find(t => t.id === taskId);
+  if (task) {
+    task.progress = progress;
+    task.completed = progress >= 100;
+    set(d);
+  }
+}
+
+// ── Move Weekly/Monthly Task to Day ──
+
+export function moveWeeklyTaskToDay(weekId, taskId, dateStr) {
+  const d = init();
+  const weekTasks = d.weeklyTasks[weekId] || [];
+  const idx = weekTasks.findIndex(t => t.id === taskId);
+  if (idx < 0) return null;
+  const task = weekTasks.splice(idx, 1)[0];
+  // Add to day
+  if (!d.tasks[dateStr]) d.tasks[dateStr] = [];
+  task.movedFrom = 'weekly';
+  task.movedDate = new Date().toISOString();
+  d.tasks[dateStr].push(task);
+  set(d);
+  return task;
+}
+
+export function moveMonthlyTaskToDay(month, taskId, dateStr) {
+  const d = init();
+  const monthTasks = d.monthlyTasks[month] || [];
+  const idx = monthTasks.findIndex(t => t.id === taskId);
+  if (idx < 0) return null;
+  const task = monthTasks.splice(idx, 1)[0];
+  if (!d.tasks[dateStr]) d.tasks[dateStr] = [];
+  task.movedFrom = 'monthly';
+  task.movedDate = new Date().toISOString();
+  d.tasks[dateStr].push(task);
+  set(d);
+  return task;
 }
 
 // ── Tasks ──

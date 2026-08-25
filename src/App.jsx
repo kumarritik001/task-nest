@@ -7,7 +7,9 @@ import {
   getAllSections, getAllDayTypes, getDatesInWeek, getDatesInMonth, getWeeksInMonth,
   getProgressLog, getTemplates, addTemplate, removeTemplate,
   getSettings, updateSettings, getUpcomingTasks, getKPIData,
-  getHours, setHours
+  getHours, setHours,
+  getWeeklyTasks, addWeeklyTask, removeWeeklyTask, toggleWeeklySubtask, addWeeklySubtask, setWeeklyTaskProgress, moveWeeklyTaskToDay,
+  getMonthlyTasks, addMonthlyTask, removeMonthlyTask, toggleMonthlySubtask, addMonthlySubtask, setMonthlyTaskProgress, moveMonthlyTaskToDay
 } from './utils/storage'
 import { startNotificationService } from './utils/notifications'
 import { getCriticismQuote, getAppreciationQuote, getAllCriticismQuotes, getAllAppreciationQuotes } from './utils/quotes'
@@ -15,6 +17,8 @@ import { Line } from 'react-chartjs-2'
 import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend, Filler } from 'chart.js'
 import TaskCard from './components/TaskCard'
 import AddTaskModal from './components/AddTaskModal'
+import WeeklyTaskCard from './components/WeeklyTaskCard'
+import MoveToDayModal from './components/MoveToDayModal'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend, Filler);
 
@@ -45,6 +49,7 @@ export default function App() {
 
   const goDay = (d) => { setSelectedDate(d); setView('today'); };
   const goWeek = (w) => { setSelectedWeek(w); setView('week'); };
+  const goMonth = (m) => { setSelectedMonth(m); setView('month'); };
   const openAddFor = (dateStr) => setAddTaskFor({ dateStr });
   const closeAdd = () => { setAddTaskFor(null); refresh(); };
 
@@ -96,7 +101,7 @@ export default function App() {
       <main className="main">
         {view === 'today' && <TodayView dateStr={selectedDate} refresh={refresh} goDay={goDay} />}
         {view === 'week' && <WeekView weekId={selectedWeek} refresh={refresh} goDay={goDay} goWeek={goWeek} openAddFor={openAddFor} />}
-        {view === 'month' && <MonthView month={selectedMonth} refresh={refresh} goDay={goDay} goWeek={goWeek} openAddFor={openAddFor} />}
+        {view === 'month' && <MonthView month={selectedMonth} refresh={refresh} goDay={goDay} goWeek={goWeek} goMonth={goMonth} openAddFor={openAddFor} />}
         {view === 'progress' && <ProgressView />}
         {view === 'quotes' && <QuotesView />}
         {view === 'settings' && <SettingsView />}
@@ -332,10 +337,15 @@ function WeekView({ weekId, refresh, goDay, goWeek, openAddFor }) {
   const today = getToday();
   const weekStart = parseISO(weekId);
   const hc = hardDayCount(weekId);
+  const weeklyTasks = getWeeklyTasks(weekId);
+  const [showWeekTaskAdd, setShowWeekTaskAdd] = useState(false);
+  const [weekTaskTitle, setWeekTaskTitle] = useState('');
+  const [weekTaskSection, setWeekTaskSection] = useState('Core Engineering');
+  const [weekTaskDesc, setWeekTaskDesc] = useState('');
+  const [moveTask, setMoveTask] = useState(null);
 
   const changeDayType = (dateStr, newType) => {
     const currentType = getDayType(dateStr);
-    // If changing FROM hard, check if we'd drop below 2
     if (currentType === 'hard' && newType !== 'hard') {
       if (hc <= 2) {
         alert('Cannot change: you need at least 2 hard days per week. Remove hard from another day first.');
@@ -344,6 +354,23 @@ function WeekView({ weekId, refresh, goDay, goWeek, openAddFor }) {
     }
     setDayType(dateStr, newType);
     refresh();
+  };
+
+  const addWeekTask = () => {
+    if (!weekTaskTitle.trim()) return;
+    addWeeklyTask(weekId, { title: weekTaskTitle, description: weekTaskDesc, section: weekTaskSection });
+    setWeekTaskTitle('');
+    setWeekTaskDesc('');
+    setShowWeekTaskAdd(false);
+    refresh();
+  };
+
+  const handleMoveToDay = (dateStr) => {
+    if (moveTask) {
+      moveWeeklyTaskToDay(weekId, moveTask.id, dateStr);
+      setMoveTask(null);
+      refresh();
+    }
   };
 
   return (
@@ -378,34 +405,16 @@ function WeekView({ weekId, refresh, goDay, goWeek, openAddFor }) {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
           <h3 style={{ fontSize: '0.85rem', fontWeight: 700 }}>Day Allocation</h3>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-            <button
-              className="btn btn-sm"
-              style={{ background: 'var(--red)', color: '#fff', fontSize: '0.68rem', padding: '5px 14px' }}
-              onClick={() => {
-                dates.forEach((ds, i) => setDayType(ds, i === 0 || i === 3 ? 'hard' : 'easy'));
-                refresh();
-              }}
-            >
+            <button className="btn btn-sm" style={{ background: 'var(--red)', color: '#fff', fontSize: '0.68rem', padding: '5px 14px' }}
+              onClick={() => { dates.forEach((ds, i) => setDayType(ds, i === 0 || i === 3 ? 'hard' : 'easy')); refresh(); }}>
               🔴 2 Hard + Easy
             </button>
-            <button
-              className="btn btn-sm"
-              style={{ background: 'var(--orange)', color: '#fff', fontSize: '0.68rem', padding: '5px 14px' }}
-              onClick={() => {
-                dates.forEach((ds, i) => setDayType(ds, i < 5 ? 'moderate' : 'easy'));
-                refresh();
-              }}
-            >
+            <button className="btn btn-sm" style={{ background: 'var(--orange)', color: '#fff', fontSize: '0.68rem', padding: '5px 14px' }}
+              onClick={() => { dates.forEach((ds, i) => setDayType(ds, i < 5 ? 'moderate' : 'easy')); refresh(); }}>
               🟠 Moderate Week
             </button>
-            <button
-              className="btn btn-sm"
-              style={{ background: '#E5E7EB', color: '#374151', fontSize: '0.68rem', padding: '5px 14px' }}
-              onClick={() => {
-                dates.forEach(ds => setDayType(ds, null));
-                refresh();
-              }}
-            >
+            <button className="btn btn-sm" style={{ background: '#E5E7EB', color: '#374151', fontSize: '0.68rem', padding: '5px 14px' }}
+              onClick={() => { dates.forEach(ds => setDayType(ds, null)); refresh(); }}>
               Clear All
             </button>
           </div>
@@ -429,31 +438,16 @@ function WeekView({ weekId, refresh, goDay, goWeek, openAddFor }) {
                   {dt && <div style={{ fontSize: '0.55rem', textTransform: 'capitalize', color: dt === 'hard' ? 'var(--red)' : dt === 'moderate' ? 'var(--orange)' : 'var(--green)', fontWeight: 600, marginTop: 2 }}>{dt} · {required}h</div>}
                   {hoursStudied > 0 && <div style={{ fontSize: '0.55rem', color: hoursStudied >= required ? 'var(--green)' : 'var(--red)', fontWeight: 600 }}>{hoursStudied}h logged</div>}
                 </div>
-                {/* Day type switcher */}
                 <div style={{ display: 'flex', gap: 3, marginTop: 6, justifyContent: 'center' }}>
                   {DAY_TYPES.map(t => (
-                    <button
-                      key={t}
-                      onClick={(e) => { e.stopPropagation(); changeDayType(ds, t); }}
-                      style={{
-                        width: 18, height: 18, borderRadius: '50%', border: 'none', cursor: 'pointer',
-                        background: dt === t
-                          ? (t === 'hard' ? 'var(--red)' : t === 'moderate' ? 'var(--orange)' : 'var(--green)')
-                          : '#E5E7EB',
-                        opacity: dt === t ? 1 : 0.5,
-                        transition: 'all 0.15s'
-                      }}
-                      title={`Set ${t}`}
-                    />
+                    <button key={t} onClick={(e) => { e.stopPropagation(); changeDayType(ds, t); }}
+                      style={{ width: 18, height: 18, borderRadius: '50%', border: 'none', cursor: 'pointer',
+                        background: dt === t ? (t === 'hard' ? 'var(--red)' : t === 'moderate' ? 'var(--orange)' : 'var(--green)') : '#E5E7EB',
+                        opacity: dt === t ? 1 : 0.5, transition: 'all 0.15s' }} title={`Set ${t}`} />
                   ))}
                 </div>
-                <button
-                  className="btn btn-sm"
-                  style={{ marginTop: 4, padding: '2px 8px', fontSize: '0.6rem', background: 'var(--yellow)', color: '#000', borderRadius: 4 }}
-                  onClick={(e) => { e.stopPropagation(); openAddFor(ds); }}
-                >
-                  + Add
-                </button>
+                <button className="btn btn-sm" style={{ marginTop: 4, padding: '2px 8px', fontSize: '0.6rem', background: 'var(--yellow)', color: '#000', borderRadius: 4 }}
+                  onClick={(e) => { e.stopPropagation(); openAddFor(ds); }}>+ Add</button>
               </div>
             );
           })}
@@ -478,13 +472,8 @@ function WeekView({ weekId, refresh, goDay, goWeek, openAddFor }) {
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{dov.done}/{dov.total} done</span>
-                  <button
-                    className="btn btn-sm"
-                    style={{ padding: '3px 10px', fontSize: '0.68rem', background: 'var(--yellow)', color: '#000' }}
-                    onClick={(e) => { e.stopPropagation(); openAddFor(ds); }}
-                  >
-                    + Add
-                  </button>
+                  <button className="btn btn-sm" style={{ padding: '3px 10px', fontSize: '0.68rem', background: 'var(--yellow)', color: '#000' }}
+                    onClick={(e) => { e.stopPropagation(); openAddFor(ds); }}>+ Add</button>
                 </div>
               </div>
               <div style={{ padding: '0 18px 14px' }}>
@@ -494,10 +483,42 @@ function WeekView({ weekId, refresh, goDay, goWeek, openAddFor }) {
           );
         })}
 
-        {dates.every(ds => getDayOverview(ds).total === 0) && (
+        {/* ── Weekly Tasks ── */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 28, marginBottom: 12 }}>
+          <h3 style={{ fontSize: '0.85rem', fontWeight: 700 }}>📋 Weekly Tasks <span style={{ color: 'var(--text-muted)', fontWeight: 400, fontSize: '0.75rem' }}>({weeklyTasks.length})</span></h3>
+          <button className="btn btn-sm btn-primary" onClick={() => setShowWeekTaskAdd(true)}>+ Add Weekly Task</button>
+        </div>
+
+        {showWeekTaskAdd && (
+          <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: 16, marginBottom: 12 }}>
+            <input className="form-input" placeholder="Weekly task title..." value={weekTaskTitle} onChange={e => setWeekTaskTitle(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && addWeekTask()} autoFocus style={{ marginBottom: 8 }} />
+            <input className="form-input" placeholder="Description (optional)" value={weekTaskDesc} onChange={e => setWeekTaskDesc(e.target.value)} style={{ marginBottom: 8 }} />
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <select className="form-select" value={weekTaskSection} onChange={e => setWeekTaskSection(e.target.value)} style={{ width: 200 }}>
+                {SECTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+              <button className="btn btn-primary btn-sm" onClick={addWeekTask}>Add</button>
+              <button className="btn btn-ghost btn-sm" onClick={() => { setShowWeekTaskAdd(false); setWeekTaskTitle(''); }}>Cancel</button>
+            </div>
+          </div>
+        )}
+
+        {weeklyTasks.length > 0 ? weeklyTasks.map(task => (
+          <WeeklyTaskCard key={task.id} task={task} weekId={weekId} refresh={refresh} type="weekly"
+            onMoveToDay={(t) => setMoveTask(t)} />
+        )) : !showWeekTaskAdd && (
+          <div style={{ padding: '16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.8rem', border: '1px dashed var(--border)', borderRadius: 'var(--radius-sm)', marginBottom: 20 }}>
+            No weekly tasks yet. Add tasks you want to accomplish this week, then shift them to specific days.
+          </div>
+        )}
+
+        {dates.every(ds => getDayOverview(ds).total === 0) && weeklyTasks.length === 0 && (
           <div className="empty"><div className="icon">▦</div><p>No tasks this week. Go to Today to add some.</p></div>
         )}
       </div>
+
+      {moveTask && <MoveToDayModal task={moveTask} weekId={weekId} onClose={() => setMoveTask(null)} onMove={handleMoveToDay} />}
     </>
   );
 }
@@ -505,12 +526,35 @@ function WeekView({ weekId, refresh, goDay, goWeek, openAddFor }) {
 // ═══════════════════════════════════════════
 // MONTH VIEW
 // ═══════════════════════════════════════════
-function MonthView({ month, refresh, goDay, goWeek, openAddFor }) {
+function MonthView({ month, refresh, goDay, goWeek, goMonth, openAddFor }) {
   const dates = getDatesInMonth(month);
   const weeks = getWeeksInMonth(month);
   const ov = getMonthOverview(month);
   const today = getToday();
   const [y, m] = month.split('-').map(Number);
+  const monthlyTasks = getMonthlyTasks(month);
+  const [showMonthTaskAdd, setShowMonthTaskAdd] = useState(false);
+  const [monthTaskTitle, setMonthTaskTitle] = useState('');
+  const [monthTaskSection, setMonthTaskSection] = useState('Core Engineering');
+  const [monthTaskDesc, setMonthTaskDesc] = useState('');
+  const [moveTask, setMoveTask] = useState(null);
+
+  const addMonthTask = () => {
+    if (!monthTaskTitle.trim()) return;
+    addMonthlyTask(month, { title: monthTaskTitle, description: monthTaskDesc, section: monthTaskSection });
+    setMonthTaskTitle('');
+    setMonthTaskDesc('');
+    setShowMonthTaskAdd(false);
+    refresh();
+  };
+
+  const handleMoveToDay = (dateStr) => {
+    if (moveTask) {
+      moveMonthlyTaskToDay(month, moveTask.id, dateStr);
+      setMoveTask(null);
+      refresh();
+    }
+  };
 
   return (
     <>
@@ -522,9 +566,9 @@ function MonthView({ month, refresh, goDay, goWeek, openAddFor }) {
           </div>
         </div>
         <div className="topbar-right">
-          <button className="btn btn-ghost btn-sm" onClick={() => { const d = new Date(y, m - 2); refresh(); }}>← Prev</button>
-          <button className="btn btn-ghost btn-sm" onClick={() => refresh()}>This Month</button>
-          <button className="btn btn-ghost btn-sm" onClick={() => { const d = new Date(y, m); refresh(); }}>Next →</button>
+          <button className="btn btn-ghost btn-sm" onClick={() => goMonth(format(new Date(y, m - 2), 'yyyy-MM'))}>← Prev</button>
+          <button className="btn btn-ghost btn-sm" onClick={() => goMonth(getCurrentMonth())}>This Month</button>
+          <button className="btn btn-ghost btn-sm" onClick={() => goMonth(format(new Date(y, m), 'yyyy-MM'))}>Next →</button>
           <button className="btn btn-primary" onClick={() => openAddFor(today)}>+ New Task</button>
         </div>
       </div>
@@ -554,11 +598,9 @@ function MonthView({ month, refresh, goDay, goWeek, openAddFor }) {
                       {format(parseISO(ds), 'd')}
                     </span>
                     {dov.total > 0 && <div className="cal-count">{dov.done}/{dov.total}</div>}
-                    <button
-                      onClick={(e) => { e.stopPropagation(); openAddFor(ds); }}
+                    <button onClick={(e) => { e.stopPropagation(); openAddFor(ds); }}
                       style={{ position: 'absolute', bottom: 2, right: 2, width: 16, height: 16, borderRadius: '50%', border: 'none', background: 'var(--yellow)', color: '#000', fontSize: '0.6rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0.7 }}
-                      title="Add task"
-                    >+</button>
+                      title="Add task">+</button>
                   </div>
                 );
               });
@@ -577,15 +619,45 @@ function MonthView({ month, refresh, goDay, goWeek, openAddFor }) {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{done}/{total} tasks</span>
                   <button className="btn btn-sm" style={{ padding: '3px 10px', fontSize: '0.68rem', background: 'var(--yellow)', color: '#000' }}
-                    onClick={() => openAddFor(w.dates[Math.min(6, w.dates.length - 1)])}>
-                    + Add to week
-                  </button>
+                    onClick={() => openAddFor(w.dates[Math.min(6, w.dates.length - 1)])}>+ Add to week</button>
                 </div>
               </div>
             </div>
           );
         })}
+
+        {/* ── Monthly Tasks ── */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 28, marginBottom: 12 }}>
+          <h3 style={{ fontSize: '0.85rem', fontWeight: 700 }}>📋 Monthly Tasks <span style={{ color: 'var(--text-muted)', fontWeight: 400, fontSize: '0.75rem' }}>({monthlyTasks.length})</span></h3>
+          <button className="btn btn-sm btn-primary" onClick={() => setShowMonthTaskAdd(true)}>+ Add Monthly Task</button>
+        </div>
+
+        {showMonthTaskAdd && (
+          <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: 16, marginBottom: 12 }}>
+            <input className="form-input" placeholder="Monthly task title..." value={monthTaskTitle} onChange={e => setMonthTaskTitle(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && addMonthTask()} autoFocus style={{ marginBottom: 8 }} />
+            <input className="form-input" placeholder="Description (optional)" value={monthTaskDesc} onChange={e => setMonthTaskDesc(e.target.value)} style={{ marginBottom: 8 }} />
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <select className="form-select" value={monthTaskSection} onChange={e => setMonthTaskSection(e.target.value)} style={{ width: 200 }}>
+                {SECTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+              <button className="btn btn-primary btn-sm" onClick={addMonthTask}>Add</button>
+              <button className="btn btn-ghost btn-sm" onClick={() => { setShowMonthTaskAdd(false); setMonthTaskTitle(''); }}>Cancel</button>
+            </div>
+          </div>
+        )}
+
+        {monthlyTasks.length > 0 ? monthlyTasks.map(task => (
+          <WeeklyTaskCard key={task.id} task={task} weekId={month} refresh={refresh} type="monthly"
+            onMoveToDay={(t) => setMoveTask(t)} />
+        )) : !showMonthTaskAdd && (
+          <div style={{ padding: '16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.8rem', border: '1px dashed var(--border)', borderRadius: 'var(--radius-sm)', marginBottom: 20 }}>
+            No monthly tasks yet. Add big goals for this month, then shift them to specific days.
+          </div>
+        )}
       </div>
+
+      {moveTask && <MoveToDayModal task={moveTask} month={month} onClose={() => setMoveTask(null)} onMove={handleMoveToDay} />}
     </>
   );
 }
