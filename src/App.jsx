@@ -35,6 +35,7 @@ export default function App() {
   const [selectedWeek, setSelectedWeek] = useState(getCurrentWeekId());
   const [selectedMonth, setSelectedMonth] = useState(getCurrentMonth());
   const [refreshKey, setRefreshKey] = useState(0);
+  const [addTaskFor, setAddTaskFor] = useState(null); // { dateStr } or null
 
   useEffect(() => { startNotificationService(getUpcomingTasks); }, []);
 
@@ -42,6 +43,8 @@ export default function App() {
 
   const goDay = (d) => { setSelectedDate(d); setView('today'); };
   const goWeek = (w) => { setSelectedWeek(w); setView('week'); };
+  const openAddFor = (dateStr) => setAddTaskFor({ dateStr });
+  const closeAdd = () => { setAddTaskFor(null); refresh(); };
 
   const navItems = [
     { group: 'Planning', items: [
@@ -90,12 +93,14 @@ export default function App() {
 
       <main className="main">
         {view === 'today' && <TodayView dateStr={selectedDate} refresh={refresh} goDay={goDay} />}
-        {view === 'week' && <WeekView weekId={selectedWeek} refresh={refresh} goDay={goDay} goWeek={goWeek} />}
-        {view === 'month' && <MonthView month={selectedMonth} refresh={refresh} goDay={goDay} goWeek={goWeek} />}
+        {view === 'week' && <WeekView weekId={selectedWeek} refresh={refresh} goDay={goDay} goWeek={goWeek} openAddFor={openAddFor} />}
+        {view === 'month' && <MonthView month={selectedMonth} refresh={refresh} goDay={goDay} goWeek={goWeek} openAddFor={openAddFor} />}
         {view === 'progress' && <ProgressView />}
         {view === 'quotes' && <QuotesView />}
         {view === 'settings' && <SettingsView />}
       </main>
+
+      {addTaskFor && <AddTaskModal dateStr={addTaskFor.dateStr} onClose={closeAdd} />}
     </div>
   );
 }
@@ -206,7 +211,7 @@ function TodayView({ dateStr, refresh, goDay }) {
 // ═══════════════════════════════════════════
 // WEEK VIEW
 // ═══════════════════════════════════════════
-function WeekView({ weekId, refresh, goDay, goWeek }) {
+function WeekView({ weekId, refresh, goDay, goWeek, openAddFor }) {
   const dates = getDatesInWeek(weekId);
   const ov = getWeekOverview(weekId);
   const today = getToday();
@@ -226,6 +231,7 @@ function WeekView({ weekId, refresh, goDay, goWeek }) {
           <button className="btn btn-ghost btn-sm" onClick={() => goWeek(format(addDays(parseISO(weekId), -7), 'yyyy-MM-dd'))}>← Prev</button>
           <button className="btn btn-ghost btn-sm" onClick={() => goWeek(getCurrentWeekId())}>This Week</button>
           <button className="btn btn-ghost btn-sm" onClick={() => goWeek(format(addDays(parseISO(weekId), 7), 'yyyy-MM-dd'))}>Next →</button>
+          <button className="btn btn-primary" onClick={() => openAddFor(today)}>+ New Task</button>
         </div>
       </div>
 
@@ -249,12 +255,21 @@ function WeekView({ weekId, refresh, goDay, goWeek }) {
             const dov = getDayOverview(ds);
             const isToday = ds === today;
             return (
-              <div key={ds} className={`day-cell ${isToday ? 'today' : ''}`} onClick={() => goDay(ds)}>
-                {dt && <div className={`day-type-dot ${dt}`} />}
-                <div className="day-label">{format(d2, 'EEE')}</div>
-                <div className="day-num">{format(d2, 'd')}</div>
-                {dov.total > 0 && <div className="day-count">{dov.done}/{dov.total}</div>}
-                {dt && <div style={{ fontSize: '0.55rem', textTransform: 'capitalize', color: dt === 'hard' ? 'var(--red)' : dt === 'moderate' ? 'var(--orange)' : 'var(--green)', fontWeight: 600, marginTop: 2 }}>{dt}</div>}
+              <div key={ds} className={`day-cell ${isToday ? 'today' : ''}`}>
+                <div onClick={() => goDay(ds)} style={{ cursor: 'pointer' }}>
+                  {dt && <div className={`day-type-dot ${dt}`} />}
+                  <div className="day-label">{format(d2, 'EEE')}</div>
+                  <div className="day-num">{format(d2, 'd')}</div>
+                  {dov.total > 0 && <div className="day-count">{dov.done}/{dov.total}</div>}
+                  {dt && <div style={{ fontSize: '0.55rem', textTransform: 'capitalize', color: dt === 'hard' ? 'var(--red)' : dt === 'moderate' ? 'var(--orange)' : 'var(--green)', fontWeight: 600, marginTop: 2 }}>{dt}</div>}
+                </div>
+                <button
+                  className="btn btn-sm"
+                  style={{ marginTop: 6, padding: '2px 8px', fontSize: '0.6rem', background: 'var(--yellow)', color: '#000', borderRadius: 4 }}
+                  onClick={(e) => { e.stopPropagation(); openAddFor(ds); }}
+                >
+                  + Add
+                </button>
               </div>
             );
           })}
@@ -263,15 +278,23 @@ function WeekView({ weekId, refresh, goDay, goWeek }) {
         <h3 style={{ fontSize: '0.85rem', marginBottom: 12, fontWeight: 700 }}>Day Details</h3>
         {dates.map(ds => {
           const dov = getDayOverview(ds);
-          if (dov.total === 0) return null;
           return (
-            <div key={ds} className="task-card" style={{ cursor: 'pointer', marginBottom: 8 }} onClick={() => goDay(ds)}>
-              <div style={{ padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div key={ds} className="task-card" style={{ marginBottom: 8 }}>
+              <div style={{ padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }} onClick={() => goDay(ds)}>
                 <div>
                   <span style={{ fontWeight: 600, fontSize: '0.88rem' }}>{format(parseISO(ds), 'EEEE, MMM d')}</span>
                   {getDayType(ds) && <span className={`tag tag-${getDayType(ds) === 'hard' ? 'hard' : getDayType(ds) === 'moderate' ? 'moderate' : 'easy'}`} style={{ marginLeft: 8 }}>{getDayType(ds)}</span>}
                 </div>
-                <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{dov.done}/{dov.total} done</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{dov.done}/{dov.total} done</span>
+                  <button
+                    className="btn btn-sm"
+                    style={{ padding: '3px 10px', fontSize: '0.68rem', background: 'var(--yellow)', color: '#000' }}
+                    onClick={(e) => { e.stopPropagation(); openAddFor(ds); }}
+                  >
+                    + Add
+                  </button>
+                </div>
               </div>
               <div style={{ padding: '0 18px 14px' }}>
                 <div className="progress-track"><div className={`progress-fill ${dov.progress > 75 ? 'hot' : dov.progress > 30 ? 'warm' : 'cold'}`} style={{ width: `${dov.progress}%` }} /></div>
@@ -291,7 +314,7 @@ function WeekView({ weekId, refresh, goDay, goWeek }) {
 // ═══════════════════════════════════════════
 // MONTH VIEW
 // ═══════════════════════════════════════════
-function MonthView({ month, refresh, goDay, goWeek }) {
+function MonthView({ month, refresh, goDay, goWeek, openAddFor }) {
   const dates = getDatesInMonth(month);
   const weeks = getWeeksInMonth(month);
   const ov = getMonthOverview(month);
@@ -311,6 +334,7 @@ function MonthView({ month, refresh, goDay, goWeek }) {
           <button className="btn btn-ghost btn-sm" onClick={() => { const d = new Date(y, m - 2); refresh(); }}>← Prev</button>
           <button className="btn btn-ghost btn-sm" onClick={() => refresh()}>This Month</button>
           <button className="btn btn-ghost btn-sm" onClick={() => { const d = new Date(y, m); refresh(); }}>Next →</button>
+          <button className="btn btn-primary" onClick={() => openAddFor(today)}>+ New Task</button>
         </div>
       </div>
 
@@ -334,9 +358,16 @@ function MonthView({ month, refresh, goDay, goWeek }) {
                 if (!ds) return <div key={`b${i}`} />;
                 const dov = getDayOverview(ds);
                 return (
-                  <div key={ds} className={`cal-day ${ds === today ? 'today' : ''} ${dov.total > 0 ? 'has-tasks' : ''}`} onClick={() => goDay(ds)}>
-                    {format(parseISO(ds), 'd')}
+                  <div key={ds} className={`cal-day ${ds === today ? 'today' : ''} ${dov.total > 0 ? 'has-tasks' : ''}`} style={{ position: 'relative' }}>
+                    <span onClick={() => goDay(ds)} style={{ cursor: 'pointer' }}>
+                      {format(parseISO(ds), 'd')}
+                    </span>
                     {dov.total > 0 && <div className="cal-count">{dov.done}/{dov.total}</div>}
+                    <button
+                      onClick={(e) => { e.stopPropagation(); openAddFor(ds); }}
+                      style={{ position: 'absolute', bottom: 2, right: 2, width: 16, height: 16, borderRadius: '50%', border: 'none', background: 'var(--yellow)', color: '#000', fontSize: '0.6rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0.7 }}
+                      title="Add task"
+                    >+</button>
                   </div>
                 );
               });
@@ -349,10 +380,16 @@ function MonthView({ month, refresh, goDay, goWeek }) {
           let total = 0, done = 0;
           w.dates.forEach(ds => { const o = getDayOverview(ds); total += o.total; done += o.done; });
           return (
-            <div key={w.id} className="task-card" style={{ cursor: 'pointer', marginBottom: 8 }} onClick={() => goWeek(w.id)}>
+            <div key={w.id} className="task-card" style={{ marginBottom: 8 }}>
               <div style={{ padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontWeight: 600, fontSize: '0.88rem' }}>{format(w.start, 'MMM d')} — {format(w.end, 'MMM d')}</span>
-                <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{done}/{total} tasks</span>
+                <span style={{ fontWeight: 600, fontSize: '0.88rem', cursor: 'pointer' }} onClick={() => goWeek(w.id)}>{format(w.start, 'MMM d')} — {format(w.end, 'MMM d')}</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{done}/{total} tasks</span>
+                  <button className="btn btn-sm" style={{ padding: '3px 10px', fontSize: '0.68rem', background: 'var(--yellow)', color: '#000' }}
+                    onClick={() => openAddFor(w.dates[Math.min(6, w.dates.length - 1)])}>
+                    + Add to week
+                  </button>
+                </div>
               </div>
             </div>
           );
