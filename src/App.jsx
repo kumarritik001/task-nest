@@ -6,7 +6,8 @@ import {
   getDayType, setDayType, swapDayTypes, hardDayCount,
   getAllSections, getAllDayTypes, getDatesInWeek, getDatesInMonth, getWeeksInMonth,
   getProgressLog, getTemplates, addTemplate, removeTemplate,
-  getSettings, updateSettings, getUpcomingTasks, getKPIData
+  getSettings, updateSettings, getUpcomingTasks, getKPIData,
+  getHours, setHours
 } from './utils/storage'
 import { startNotificationService } from './utils/notifications'
 import { getCriticismQuote, getAppreciationQuote, getAllCriticismQuotes, getAllAppreciationQuotes } from './utils/quotes'
@@ -19,6 +20,7 @@ ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip,
 
 const SECTIONS = getAllSections();
 const DAY_TYPES = getAllDayTypes();
+const HOUR_STANDARDS = { hard: 11, moderate: 6, easy: 4 };
 const SECTION_COLORS = {
   'Core Engineering': { bg: '#FEF3C7', text: '#92400E', tag: 'tag-core' },
   'Project': { bg: '#DBEAFE', text: '#1E40AF', tag: 'tag-project' },
@@ -191,6 +193,76 @@ function TodayView({ dateStr, refresh, goDay }) {
           </div>
         </div>
 
+        {/* ── Hours Tracker ── */}
+        <h3 style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 12 }}>⏱ Hours Tracker</h3>
+        <div className="stats-row" style={{ marginBottom: 8 }}>
+          <div className="stat-card" style={{ borderLeft: `3px solid ${kpi.todayHours >= kpi.todayRequired && kpi.todayRequired > 0 ? 'var(--green)' : 'var(--red)'}` }}>
+            <div className="stat-label">Today's Hours</div>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+              <div className="stat-value">{kpi.todayHours}h</div>
+              <div className="stat-sub">/ {kpi.todayRequired}h required</div>
+            </div>
+            <div className="stat-sub">
+              {kpi.todayDayType ? `${kpi.todayDayType} day standard` : 'Set day type to see requirement'}
+            </div>
+            {kpi.todayRequired > 0 && (
+              <div className="progress-wrap" style={{ marginTop: 6 }}>
+                <div className="progress-track">
+                  <div className={`progress-fill ${kpi.todayHours >= kpi.todayRequired ? 'hot' : kpi.todayHours >= kpi.todayRequired * 0.5 ? 'warm' : 'cold'}`}
+                    style={{ width: `${Math.min(100, (kpi.todayHours / kpi.todayRequired) * 100)}%` }} />
+                </div>
+              </div>
+            )}
+          </div>
+          <div className="stat-card" style={{ borderLeft: `3px solid ${kpi.weekHoursStudied >= kpi.weekHoursRequired ? 'var(--green)' : 'var(--orange)'}` }}>
+            <div className="stat-label">This Week</div>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+              <div className="stat-value">{kpi.weekHoursStudied}h</div>
+              <div className="stat-sub">/ {kpi.weekHoursRequired}h</div>
+            </div>
+            <div className="stat-sub">
+              {kpi.weekHoursRequired > 0 ? `${Math.round((kpi.weekHoursStudied / kpi.weekHoursRequired) * 100)}% of target` : 'No day types set'}
+            </div>
+          </div>
+          <div className="stat-card" style={{ borderLeft: `3px solid ${kpi.monthHoursStudied >= kpi.monthHoursRequired ? 'var(--green)' : 'var(--orange)'}` }}>
+            <div className="stat-label">This Month</div>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+              <div className="stat-value">{kpi.monthHoursStudied}h</div>
+              <div className="stat-sub">/ {kpi.monthHoursRequired}h</div>
+            </div>
+            <div className="stat-sub">
+              {kpi.monthHoursRequired > 0 ? `${Math.round((kpi.monthHoursStudied / kpi.monthHoursRequired) * 100)}% of target` : 'No day types set'}
+            </div>
+          </div>
+          <div className="stat-card blue">
+            <div className="stat-label">Total Hours Logged</div>
+            <div className="stat-value">{kpi.totalHoursEver}h</div>
+            <div className="stat-sub">all time</div>
+          </div>
+        </div>
+
+        {/* Hours input */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20, padding: '12px 16px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)' }}>
+          <span style={{ fontSize: '0.82rem', fontWeight: 600 }}>Log hours for today:</span>
+          <input
+            type="number"
+            min="0"
+            max="24"
+            step="0.5"
+            value={kpi.todayHours}
+            onChange={(e) => { setHours(today, e.target.value); refresh(); }}
+            style={{ width: 70, padding: '6px 10px', border: '1px solid var(--border)', borderRadius: 'var(--radius-xs)', fontSize: '0.85rem', fontFamily: 'inherit', textAlign: 'center' }}
+          />
+          <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+            hours
+            {kpi.todayRequired > 0 && (
+              kpi.todayHours >= kpi.todayRequired
+                ? <span style={{ color: 'var(--green)', fontWeight: 600 }}> ✓ Target met!</span>
+                : <span style={{ color: 'var(--red)' }}> — need {kpi.todayRequired - kpi.todayHours}h more</span>
+            )}
+          </span>
+        </div>
+
         {/* ── Harsh verdict ── */}
         {kpi.totalTasksEver > 0 && (
           <div style={{
@@ -210,6 +282,8 @@ function TodayView({ dateStr, refresh, goDay }) {
             {kpi.completionRate < 40 && '🚨 Embarrassing. Less than half your tasks are done. What are you doing?'}
             {kpi.overdueTasks > 3 && ' | 🚨 And you have ' + kpi.overdueTasks + ' overdue tasks. Deadlines mean nothing to you?'}
             {kpi.hardDays < 2 && ' | ⚠️ You haven\'t even scheduled 2 hard days. Comfort zone is not a strategy.'}
+            {kpi.todayRequired > 0 && kpi.todayHours < kpi.todayRequired && ' | ⏱ You studied ' + kpi.todayHours + 'h today. Required was ' + kpi.todayRequired + 'h. Slack.'}
+            {kpi.todayRequired > 0 && kpi.todayHours >= kpi.todayRequired && ' | ⏱ ' + kpi.todayHours + 'h logged. Target hit. Respect.'}
           </div>
         )}
 
@@ -343,14 +417,17 @@ function WeekView({ weekId, refresh, goDay, goWeek, openAddFor }) {
             const dt = getDayType(ds);
             const dov = getDayOverview(ds);
             const isToday = ds === today;
+            const hoursStudied = getHours(ds);
+            const required = dt === 'hard' ? 11 : dt === 'moderate' ? 6 : dt === 'easy' ? 4 : 0;
             return (
               <div key={ds} className={`day-cell ${isToday ? 'today' : ''}`}>
                 <div onClick={() => goDay(ds)} style={{ cursor: 'pointer' }}>
                   {dt && <div className={`day-type-dot ${dt}`} />}
                   <div className="day-label">{format(d2, 'EEE')}</div>
                   <div className="day-num">{format(d2, 'd')}</div>
-                  {dov.total > 0 && <div className="day-count">{dov.done}/{dov.total}</div>}
-                  {dt && <div style={{ fontSize: '0.55rem', textTransform: 'capitalize', color: dt === 'hard' ? 'var(--red)' : dt === 'moderate' ? 'var(--orange)' : 'var(--green)', fontWeight: 600, marginTop: 2 }}>{dt}</div>}
+                  {dov.total > 0 && <div className="day-count">{dov.done}/{dov.total} tasks</div>}
+                  {dt && <div style={{ fontSize: '0.55rem', textTransform: 'capitalize', color: dt === 'hard' ? 'var(--red)' : dt === 'moderate' ? 'var(--orange)' : 'var(--green)', fontWeight: 600, marginTop: 2 }}>{dt} · {required}h</div>}
+                  {hoursStudied > 0 && <div style={{ fontSize: '0.55rem', color: hoursStudied >= required ? 'var(--green)' : 'var(--red)', fontWeight: 600 }}>{hoursStudied}h logged</div>}
                 </div>
                 {/* Day type switcher */}
                 <div style={{ display: 'flex', gap: 3, marginTop: 6, justifyContent: 'center' }}>

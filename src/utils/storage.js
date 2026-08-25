@@ -14,12 +14,26 @@ function set(d) { localStorage.setItem('tn_data', JSON.stringify(d)); }
 function init() {
   const d = get();
   if (!d.tasks) d.tasks = {};
+  if (!d.templates) d.templates = {};
   if (!d.templates) d.templates = [];
   if (!d.dayTypes) d.dayTypes = {};
+  if (!d.hoursLog) d.hoursLog = {};
   if (!d.progressLog) d.progressLog = [];
   if (!d.settings) d.settings = { email: '' };
   set(d);
   return d;
+}
+
+// ── Hours Log ──
+
+export function getHours(dateStr) {
+  return get().hoursLog[dateStr] || 0;
+}
+
+export function setHours(dateStr, hours) {
+  const d = init();
+  d.hoursLog[dateStr] = parseFloat(hours) || 0;
+  set(d);
 }
 
 // ── Tasks ──
@@ -404,6 +418,39 @@ export function getKPIData() {
     }
   });
 
+  // Hours data
+  const hoursLog = d.hoursLog || {};
+  const todayHours = hoursLog[today] || 0;
+  const todayDayType = d.dayTypes[today] || null;
+  const todayRequired = todayDayType === 'hard' ? 11 : todayDayType === 'moderate' ? 6 : todayDayType === 'easy' ? 4 : 0;
+
+  // Week hours
+  let weekHoursStudied = 0;
+  let weekHoursRequired = 0;
+  weekDates.forEach(ds => {
+    const h = hoursLog[ds] || 0;
+    const dt = d.dayTypes[ds];
+    const req = dt === 'hard' ? 11 : dt === 'moderate' ? 6 : dt === 'easy' ? 4 : 0;
+    weekHoursStudied += h;
+    weekHoursRequired += req;
+  });
+
+  // Month hours
+  const monthDates = getDatesInMonth(currentMonth);
+  let monthHoursStudied = 0;
+  let monthHoursRequired = 0;
+  monthDates.forEach(ds => {
+    const h = hoursLog[ds] || 0;
+    const dt = d.dayTypes[ds];
+    const req = dt === 'hard' ? 11 : dt === 'moderate' ? 6 : dt === 'easy' ? 4 : 0;
+    monthHoursStudied += h;
+    monthHoursRequired += req;
+  });
+
+  // Total hours ever
+  let totalHoursEver = 0;
+  Object.values(hoursLog).forEach(h => { totalHoursEver += h; });
+
   return {
     totalTasksEver,
     totalDone,
@@ -424,6 +471,14 @@ export function getKPIData() {
     monthProgress: monthOv.progress,
     monthTotal: monthOv.total,
     monthDone: monthOv.done,
-    sectionStats
+    sectionStats,
+    todayHours,
+    todayRequired,
+    todayDayType,
+    weekHoursStudied,
+    weekHoursRequired,
+    monthHoursStudied,
+    monthHoursRequired,
+    totalHoursEver
   };
 }
