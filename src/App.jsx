@@ -6,7 +6,7 @@ import {
   getDayType, setDayType, swapDayTypes, hardDayCount,
   getAllSections, getAllDayTypes, getDatesInWeek, getDatesInMonth, getWeeksInMonth,
   getProgressLog, getTemplates, addTemplate, removeTemplate,
-  getSettings, updateSettings, getUpcomingTasks
+  getSettings, updateSettings, getUpcomingTasks, getKPIData
 } from './utils/storage'
 import { startNotificationService } from './utils/notifications'
 import { getCriticismQuote, getAppreciationQuote, getAllCriticismQuotes, getAllAppreciationQuotes } from './utils/quotes'
@@ -118,6 +118,7 @@ function TodayView({ dateStr, refresh, goDay }) {
   const dayType = getDayType(dateStr);
   const d = parseISO(dateStr);
   const today = getToday();
+  const kpi = getKPIData();
 
   const filtered = activeSection === 'All' ? tasks : tasks.filter(t => t.section === activeSection);
 
@@ -139,46 +140,86 @@ function TodayView({ dateStr, refresh, goDay }) {
       </div>
 
       <div className="page-body">
-        <div className="stats-row">
+        {/* ── KPI: No Mercy Review ── */}
+        <h3 style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 12 }}>⚡ No Mercy Review</h3>
+        <div className="stats-row" style={{ marginBottom: 8 }}>
           <div className="stat-card yellow">
-            <div className="stat-label">Total Tasks</div>
-            <div className="stat-value">{ov.total}</div>
-            <div className="stat-sub">for this day</div>
-          </div>
-          <div className="stat-card green">
-            <div className="stat-label">Completed</div>
-            <div className="stat-value">{ov.done}</div>
-            <div className="stat-sub">{ov.total > 0 ? Math.round((ov.done / ov.total) * 100) : 0}% done</div>
-          </div>
-          <div className="stat-card orange">
-            <div className="stat-label">In Progress</div>
-            <div className="stat-value">{ov.total - ov.done}</div>
-            <div className="stat-sub">remaining</div>
-          </div>
-          <div className="stat-card blue">
-            <div className="stat-label">Day Type</div>
-            <div className="stat-value" style={{ textTransform: 'capitalize' }}>{dayType || '—'}</div>
-            <div className="stat-sub">
-              {DAY_TYPES.map(dt => (
-                <button
-                  key={dt}
-                  className={`day-type-btn ${dt} ${dayType === dt ? 'active' : ''}`}
-                  style={{ marginRight: 4 }}
-                  onClick={() => { setDayType(dateStr, dt); refresh(); }}
-                >
-                  {dt}
-                </button>
-              ))}
+            <div className="stat-label">Completion Rate</div>
+            <div className="stat-value">{kpi.completionRate}%</div>
+            <div className="stat-sub">{kpi.totalDone}/{kpi.totalTasksEver} tasks finished</div>
+            <div className="progress-wrap" style={{ marginTop: 6 }}>
+              <div className="progress-track"><div className={`progress-fill ${kpi.completionRate > 70 ? 'hot' : kpi.completionRate > 30 ? 'warm' : 'cold'}`} style={{ width: `${kpi.completionRate}%` }} /></div>
             </div>
+          </div>
+          <div className="stat-card" style={{ borderLeft: `3px solid ${kpi.streak >= 3 ? 'var(--green)' : kpi.streak >= 1 ? 'var(--yellow)' : 'var(--red)'}` }}>
+            <div className="stat-label">Active Streak</div>
+            <div className="stat-value">{kpi.streak} day{kpi.streak !== 1 ? 's' : ''}</div>
+            <div className="stat-sub">{kpi.streak === 0 ? 'You slipped. Start today.' : kpi.streak >= 7 ? 'Unstoppable.' : 'Keep it going.'}</div>
+          </div>
+          <div className="stat-card" style={{ borderLeft: `3px solid ${kpi.overdueTasks > 0 ? 'var(--red)' : 'var(--green)'}` }}>
+            <div className="stat-label">Overdue Tasks</div>
+            <div className="stat-value" style={{ color: kpi.overdueTasks > 0 ? 'var(--red)' : 'var(--green)' }}>{kpi.overdueTasks}</div>
+            <div className="stat-sub">{kpi.overdueRate}% of open tasks are late</div>
+          </div>
+          <div className="stat-card" style={{ borderLeft: `3px solid ${kpi.hardDays >= 2 ? 'var(--green)' : 'var(--red)'}` }}>
+            <div className="stat-label">Hard Days This Week</div>
+            <div className="stat-value">{kpi.hardDays}/2</div>
+            <div className="stat-sub">{kpi.hardDays >= 2 ? '✓ Minimum met' : '⚠ Need 2 hard days'}</div>
           </div>
         </div>
 
+        <div className="stats-row" style={{ marginBottom: 20 }}>
+          <div className="stat-card" style={{ borderLeft: '3px solid var(--purple)' }}>
+            <div className="stat-label">Avg Progress</div>
+            <div className="stat-value">{kpi.avgProgress}%</div>
+            <div className="stat-sub">across all tasks ever</div>
+          </div>
+          <div className="stat-card" style={{ borderLeft: `3px solid ${kpi.weakestRate < 30 ? 'var(--red)' : 'var(--orange)'}` }}>
+            <div className="stat-label">Weakest Section</div>
+            <div className="stat-value" style={{ fontSize: '1rem' }}>{kpi.weakestSection}</div>
+            <div className="stat-sub">{kpi.weakestRate < 101 ? `${kpi.weakestRate}% completion` : 'No data'}</div>
+          </div>
+          <div className="stat-card blue">
+            <div className="stat-label">Today's Tasks</div>
+            <div className="stat-value">{kpi.todayDone}/{kpi.todayTasks}</div>
+            <div className="stat-sub">{kpi.todayTasks === 0 ? 'Nothing planned' : kpi.todayDone === kpi.todayTasks ? 'All done!' : `${kpi.todayTasks - kpi.todayDone} remaining`}</div>
+          </div>
+          <div className="stat-card green">
+            <div className="stat-label">Month Progress</div>
+            <div className="stat-value">{kpi.monthProgress}%</div>
+            <div className="stat-sub">{kpi.monthDone}/{kpi.monthTotal} tasks this month</div>
+          </div>
+        </div>
+
+        {/* ── Harsh verdict ── */}
+        {kpi.totalTasksEver > 0 && (
+          <div style={{
+            padding: '12px 18px',
+            borderRadius: 'var(--radius-sm)',
+            marginBottom: 20,
+            fontSize: '0.82rem',
+            fontWeight: 600,
+            background: kpi.completionRate >= 70 && kpi.streak >= 2 ? '#ECFDF5' : kpi.completionRate >= 40 ? '#FFFBEB' : '#FEF2F2',
+            color: kpi.completionRate >= 70 && kpi.streak >= 2 ? '#065F46' : kpi.completionRate >= 40 ? '#92400E' : '#991B1B',
+            border: `1px solid ${kpi.completionRate >= 70 && kpi.streak >= 2 ? '#A7F3D0' : kpi.completionRate >= 40 ? '#FDE68A' : '#FECACA'}`
+          }}>
+            {kpi.completionRate >= 70 && kpi.streak >= 3 && '🔥 You\'re on fire. Don\'t stop.'}
+            {kpi.completionRate >= 70 && kpi.streak < 3 && kpi.streak >= 1 && '💪 Good completion. Build the streak.'}
+            {kpi.completionRate >= 70 && kpi.streak === 0 && '⚠️ Great completion rate but you broke your streak. Consistency matters.'}
+            {kpi.completionRate >= 40 && kpi.completionRate < 70 && '😐 Average. You\'re leaving too much on the table.'}
+            {kpi.completionRate < 40 && '🚨 Embarrassing. Less than half your tasks are done. What are you doing?'}
+            {kpi.overdueTasks > 3 && ' | 🚨 And you have ' + kpi.overdueTasks + ' overdue tasks. Deadlines mean nothing to you?'}
+            {kpi.hardDays < 2 && ' | ⚠️ You haven\'t even scheduled 2 hard days. Comfort zone is not a strategy.'}
+          </div>
+        )}
+
+        {/* ── Today's progress bar ── */}
         {ov.total > 0 && (
           <div style={{ marginBottom: 20 }}>
             <div className="progress-track" style={{ height: 8 }}>
               <div className={`progress-fill ${ov.progress > 75 ? 'hot' : ov.progress > 30 ? 'warm' : 'cold'}`} style={{ width: `${ov.progress}%` }} />
             </div>
-            <div className="progress-info"><span>{ov.progress}% overall</span></div>
+            <div className="progress-info"><span>{ov.progress}% today</span></div>
           </div>
         )}
 
@@ -218,6 +259,19 @@ function WeekView({ weekId, refresh, goDay, goWeek, openAddFor }) {
   const weekStart = parseISO(weekId);
   const hc = hardDayCount(weekId);
 
+  const changeDayType = (dateStr, newType) => {
+    const currentType = getDayType(dateStr);
+    // If changing FROM hard, check if we'd drop below 2
+    if (currentType === 'hard' && newType !== 'hard') {
+      if (hc <= 2) {
+        alert('Cannot change: you need at least 2 hard days per week. Remove hard from another day first.');
+        return;
+      }
+    }
+    setDayType(dateStr, newType);
+    refresh();
+  };
+
   return (
     <>
       <div className="topbar">
@@ -242,12 +296,20 @@ function WeekView({ weekId, refresh, goDay, goWeek, openAddFor }) {
           <div className="stat-card orange"><div className="stat-label">Progress</div><div className="stat-value">{ov.progress}%</div></div>
           <div className={`stat-card ${hc >= 2 ? 'green' : 'orange'}`}>
             <div className="stat-label">Hard Days</div>
-            <div className="stat-value">{hc}/7</div>
+            <div className="stat-value">{hc}/2</div>
             <div className="stat-sub">{hc < 2 ? '⚠ Need ≥2 hard days' : '✓ Minimum met'}</div>
           </div>
         </div>
 
-        <h3 style={{ fontSize: '0.85rem', marginBottom: 12, fontWeight: 700 }}>Day Allocation</h3>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+          <h3 style={{ fontSize: '0.85rem', fontWeight: 700 }}>Day Allocation</h3>
+          <div style={{ display: 'flex', gap: 10, fontSize: '0.68rem', color: 'var(--text-muted)' }}>
+            <span><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: 'var(--red)', marginRight: 4 }}></span>Hard (≥2/week)</span>
+            <span><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: 'var(--orange)', marginRight: 4 }}></span>Moderate</span>
+            <span><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: 'var(--green)', marginRight: 4 }}></span>Easy</span>
+          </div>
+        </div>
+
         <div className="day-grid" style={{ marginBottom: 28 }}>
           {dates.map(ds => {
             const d2 = parseISO(ds);
@@ -263,9 +325,27 @@ function WeekView({ weekId, refresh, goDay, goWeek, openAddFor }) {
                   {dov.total > 0 && <div className="day-count">{dov.done}/{dov.total}</div>}
                   {dt && <div style={{ fontSize: '0.55rem', textTransform: 'capitalize', color: dt === 'hard' ? 'var(--red)' : dt === 'moderate' ? 'var(--orange)' : 'var(--green)', fontWeight: 600, marginTop: 2 }}>{dt}</div>}
                 </div>
+                {/* Day type switcher */}
+                <div style={{ display: 'flex', gap: 3, marginTop: 6, justifyContent: 'center' }}>
+                  {DAY_TYPES.map(t => (
+                    <button
+                      key={t}
+                      onClick={(e) => { e.stopPropagation(); changeDayType(ds, t); }}
+                      style={{
+                        width: 18, height: 18, borderRadius: '50%', border: 'none', cursor: 'pointer',
+                        background: dt === t
+                          ? (t === 'hard' ? 'var(--red)' : t === 'moderate' ? 'var(--orange)' : 'var(--green)')
+                          : '#E5E7EB',
+                        opacity: dt === t ? 1 : 0.5,
+                        transition: 'all 0.15s'
+                      }}
+                      title={`Set ${t}`}
+                    />
+                  ))}
+                </div>
                 <button
                   className="btn btn-sm"
-                  style={{ marginTop: 6, padding: '2px 8px', fontSize: '0.6rem', background: 'var(--yellow)', color: '#000', borderRadius: 4 }}
+                  style={{ marginTop: 4, padding: '2px 8px', fontSize: '0.6rem', background: 'var(--yellow)', color: '#000', borderRadius: 4 }}
                   onClick={(e) => { e.stopPropagation(); openAddFor(ds); }}
                 >
                   + Add
@@ -275,15 +355,22 @@ function WeekView({ weekId, refresh, goDay, goWeek, openAddFor }) {
           })}
         </div>
 
+        {hc < 2 && (
+          <div style={{ padding: '10px 16px', borderRadius: 'var(--radius-sm)', marginBottom: 20, fontSize: '0.8rem', fontWeight: 600, background: '#FEF2F2', color: '#991B1B', border: '1px solid #FECACA' }}>
+            🚨 You have {hc} hard day{hc !== 1 ? 's' : ''}. Minimum 2 required. Click the red dot on any day to make it hard.
+          </div>
+        )}
+
         <h3 style={{ fontSize: '0.85rem', marginBottom: 12, fontWeight: 700 }}>Day Details</h3>
         {dates.map(ds => {
           const dov = getDayOverview(ds);
+          const dt = getDayType(ds);
           return (
             <div key={ds} className="task-card" style={{ marginBottom: 8 }}>
               <div style={{ padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }} onClick={() => goDay(ds)}>
                 <div>
                   <span style={{ fontWeight: 600, fontSize: '0.88rem' }}>{format(parseISO(ds), 'EEEE, MMM d')}</span>
-                  {getDayType(ds) && <span className={`tag tag-${getDayType(ds) === 'hard' ? 'hard' : getDayType(ds) === 'moderate' ? 'moderate' : 'easy'}`} style={{ marginLeft: 8 }}>{getDayType(ds)}</span>}
+                  {dt && <span className={`tag tag-${dt === 'hard' ? 'hard' : dt === 'moderate' ? 'moderate' : 'easy'}`} style={{ marginLeft: 8 }}>{dt}</span>}
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{dov.done}/{dov.total} done</span>

@@ -320,3 +320,110 @@ export function getUpcomingTasks() {
 
 export function getAllSections() { return SECTIONS; }
 export function getAllDayTypes() { return DAY_TYPES; }
+
+// ── KPI Data (No Mercy Review) ──
+
+export function getKPIData() {
+  const d = init();
+  const today = getToday();
+  const allDates = Object.keys(d.tasks).sort();
+  const todayOv = getDayOverview(today);
+  const weekId = getCurrentWeekId();
+  const weekOv = getWeekOverview(weekId);
+  const currentMonth = getCurrentMonth();
+  const monthOv = getMonthOverview(currentMonth);
+
+  // Total tasks ever created
+  let totalTasksEver = 0;
+  let totalDone = 0;
+  let totalInProgress = 0;
+  let overdueTasks = 0;
+  const sectionStats = {};
+  SECTIONS.forEach(s => { sectionStats[s] = { total: 0, done: 0 }; });
+
+  allDates.forEach(ds => {
+    const tasks = d.tasks[ds] || [];
+    tasks.forEach(t => {
+      totalTasksEver++;
+      if (t.completed) totalDone++;
+      else totalInProgress++;
+      if (!t.completed && t.deadline && t.deadline < today) overdueTasks++;
+      if (sectionStats[t.section]) {
+        sectionStats[t.section].total++;
+        if (t.completed) sectionStats[t.section].done++;
+      }
+    });
+  });
+
+  // Completion rate
+  const completionRate = totalTasksEver > 0 ? Math.round((totalDone / totalTasksEver) * 100) : 0;
+
+  // Active days count
+  const activeDays = allDates.length;
+
+  // Streak: consecutive days with tasks ending at today
+  let streak = 0;
+  let checkDate = today;
+  while (d.tasks[checkDate] && d.tasks[checkDate].length > 0) {
+    streak++;
+    const prev = addDays(parseISO(checkDate), -1);
+    checkDate = format(prev, 'yyyy-MM-dd');
+  }
+
+  // Hard days this week
+  const hardDays = hardDayCount(weekId);
+  const weekDates = getDatesInWeek(weekId);
+  const daysWithType = weekDates.filter(ds => d.dayTypes[ds]).length;
+
+  // Average progress across all tasks
+  let progSum = 0;
+  let progCount = 0;
+  allDates.forEach(ds => {
+    (d.tasks[ds] || []).forEach(t => {
+      progSum += t.progress;
+      progCount++;
+    });
+  });
+  const avgProgress = progCount > 0 ? Math.round(progSum / progCount) : 0;
+
+  // Tasks today
+  const todayTasks = d.tasks[today] || [];
+  const todayDone = todayTasks.filter(t => t.completed).length;
+  const todayTotal = todayTasks.length;
+
+  // Overdue percentage
+  const overdueRate = totalInProgress > 0 ? Math.round((overdueTasks / totalInProgress) * 100) : 0;
+
+  // Weakest section
+  let weakestSection = '—';
+  let weakestRate = 101;
+  Object.entries(sectionStats).forEach(([s, st]) => {
+    if (st.total > 0) {
+      const rate = Math.round((st.done / st.total) * 100);
+      if (rate < weakestRate) { weakestRate = rate; weakestSection = s; }
+    }
+  });
+
+  return {
+    totalTasksEver,
+    totalDone,
+    totalInProgress,
+    completionRate,
+    activeDays,
+    streak,
+    hardDays,
+    daysWithType,
+    avgProgress,
+    todayTasks: todayTotal,
+    todayDone,
+    overdueTasks,
+    overdueRate,
+    weakestSection,
+    weakestRate,
+    weekProgress: weekOv.progress,
+    monthProgress: monthOv.progress,
+    monthTotal: monthOv.total,
+    monthDone: monthOv.done,
+    sectionStats
+  };
+}
